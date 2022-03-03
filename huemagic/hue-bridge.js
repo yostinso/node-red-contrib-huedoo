@@ -70,8 +70,12 @@ module.exports = function(RED)
 				else
 				{
 					let bridgeInformation = bridge.get("bridge", "bridge", { autoupdate: ((bridge.config.autoupdates && bridge.config.autoupdates == true) || typeof bridge.config.autoupdates == 'undefined') });
-					scope.lastBridgeInformation = Object.assign({}, bridgeInformation);
-
+					if (!bridgeInformation) {
+						// Bridge not yet initialized
+						bridgeInformation = null;
+					} else {
+						scope.lastBridgeInformation = Object.assign({}, bridgeInformation);
+					}
 					resolve(bridgeInformation);
 				}
 			});
@@ -286,15 +290,19 @@ module.exports = function(RED)
 				else
 				{
 					// SEND MESSAGE
-					if(scope.lastCommand !== null)
-					{
-						bridgeInformation.command = scope.lastCommand;
+					if (!bridgeInformation) {
+						scope.send({ "status": "not_initialized" });
+					} else {
+						if(scope.lastCommand !== null)
+						{
+							bridgeInformation.command = scope.lastCommand;
+						}
+
+						scope.send(bridgeInformation);
+
+						// RESET LAST COMMAND
+						scope.lastCommand = null;
 					}
-
-					scope.send(bridgeInformation);
-
-					// RESET LAST COMMAND
-					scope.lastCommand = null;
 				}
 			});
 		});
