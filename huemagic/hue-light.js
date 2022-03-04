@@ -714,12 +714,30 @@ module.exports = function(RED)
 					// CHANGE NODE UI STATE
 					if(config.lightid)
 					{
+						// this one
 						scope.status({fill: "grey", shape: "ring", text: "hue-light.node.command"});
 					}
 
 					// PATCH!
 					bridge.patch("light", tempLightID, patchObject)
-					.then(function() { if(done) { done(); }})
+					.then(function() { if(done) {
+						// We won't get an event to update the status if the state didn't change, so
+						// we should always set it back to whatever it was before here...
+
+						if(config.lightid) {
+							if (currentState.payload.on) {
+								if (currentState.payload.brightness !== false) {
+									scope.status({ fill: "yellow", shape: "dot", text: RED._("hue-light.node.turned-on-percent", { percent: currentState.payload.brightness }) });
+								} else {
+									scope.status({ fill: "yellow", shape: "dot", text: "hue-light.node.turned-on" });
+								}
+							} else {
+								scope.status({ fill: "grey", shape: "dot", text: "hue-light.node.turned-off" });
+							}
+						}
+
+						done();
+					}})
 					.catch(function(errors) { scope.error(errors);  });
 				}
 				else
