@@ -2,9 +2,103 @@ import axios, { AxiosRequestConfig } from "axios";
 import dayjs from 'dayjs';
 import https from 'https';
 import EventSource from 'eventsource';
-import { Resource, ResourceRef, ResourceId, BasicResourceUnion, ResourceType, EventUpdate, BaseResourceData, BasicServiceResource, BasicResource, ResourceList } from "./resource-types";
+import { Resource, ResourceRef, ResourceId, BasicResourceUnion, ResourceType, EventUpdate, EventData, BaseResourceData, BasicServiceResource, BasicResource, ResourceList } from "./resource-types";
+import { TypedBridgeV1Response, TypedRulesV1ResponseItem } from "./messages";
 
+export type AnyResponse = RulesV1ResponseItem | BridgeV1Response | BasicResourceUnion;
+export type AnyResource = TypedRulesV1ResponseItem | TypedBridgeV1Response | BasicResourceUnion;
 
+export type RulesRequestArgs = {
+	method?: "GET";
+	config: Config;
+	data?: undefined;
+	resource: "/rules";
+	version: 1;
+}
+export type RulesV1ResponseItem = {
+    name: string;
+    lasttriggered: string;
+    creationtime: string;
+    timestriggered: number;
+    owner: string;
+    status: string;
+    conditions: {
+        address: string;
+        operator: string;
+        value?: string;
+    }[]
+    actions: {
+        address: string;
+        method: "GET" | "PUT" | "DELETE";
+        body: object
+    }[]
+};
+export type RulesV1Response = {
+    [ index: string ]: RulesV1ResponseItem
+};
+
+export type BridgeRequestArgs = {
+	method?: "GET";
+	config: Config;
+	data?: undefined;
+	resource: "/config";
+	version: 1;
+}
+export type BridgeV1Response = {
+    name: string;
+	bridgeid: string;
+	factorynew: boolean;
+	replacesbridgeid: string;
+	datastoreversion: string;
+	starterkitid: string;
+	swversion: string;
+	apiversion: string;
+	ipaddress: string;
+	netmask: string;
+	gateway: string;
+	proxyaddress: string;
+	proxyport: number;
+	UTC: string;
+	timezone: string;
+	localtime: string;
+	portalservices: boolean;
+	portalconnection: string;
+	linkbutton: boolean;
+	updated: string;
+	modelid: string;
+    zigbeechannel: number;
+    mac: string;
+    dhcp: boolean;
+
+	whitelist: {
+		[ id: string ]: {
+			"last use date": string;
+			"create date": string;
+			name: string;
+		}
+	}
+};
+export type BridgeAutoupdateArgs = BridgeRequestArgs & {
+	config: Config;
+	resource: "/config";
+	version: 1;
+	method: "PUT";
+	data: {
+		swupdate2: {
+			checkforupdate: boolean;
+			install: boolean;
+		}
+	}
+}
+
+export type AllResourcesRequestArgs = {
+	method?: "GET";
+	config: Config;
+	data?: undefined;
+	resource: "all";
+	version?: 2;
+}
+export type AllResourcesResponse = BasicResourceUnion[];
 
 type Config = {
 	bridge: string;
@@ -15,14 +109,16 @@ type ConfigWithId = Config & {
 }
 
 type InitArgs = { config: Config | null }
-type RequestArgs = {
-	method: "GET" | "PUT";
+export type ResourceRequestArgs = {
+	method?: "GET";
 	resource: ResourceType | null;
-	data: object | string | null;
+	data?: object | string | null;
 	config: Config | null;
-	version: 1 | 2;
+	version?: 1 | 2;
 }
 
+type RequestArgs = BridgeAutoupdateArgs | RulesRequestArgs | BridgeRequestArgs | ResourceRequestArgs | AllResourcesRequestArgs;
+type RequestResponse = RulesV1Response | BridgeV1Response | BasicResourceUnion | AllResourcesResponse;
 
 interface ExpandedBasicServiceResource extends BaseResourceData {
 	types?: ResourceType[]
@@ -41,38 +137,50 @@ interface ExpandedBasicResource extends BaseResourceData {
           "entertainment" | "homekit";
     owner?: Resource
 }
-type ExpandedResource = ExpandedBasicResource | ExpandedBasicServiceResource;
 
-function expandResourceLinks(resource: BasicResourceUnion, allResources: { [id: string]: (BasicResource | BasicServiceResource) }): ExpandedResource {
+export type ExpandedResource = ExpandedBasicResource | ExpandedBasicServiceResource | TypedBridgeV1Response | TypedRulesV1ResponseItem;
 
+function expandResourceLinks(resource: AnyResponse, allResources: { [id: string]: (BasicResource | BasicServiceResource) }): ExpandedResource {
 	// We either have an owner _OR_ we have services
-	if (resource.type == "device" || resource.type == "room" || resource.type == "zone" || resource.type == "bridge_home") {
-		// RESOLVE SERVICES
-		let allServices: {
-			[ targetType: string ]: { [targetId: ResourceId ]: ExpandedResource }
-		} = {};
+	if ("type" in resource) {
+		if (resource.type == "device" || resource.type == "room" || resource.type == "zone" || resource.type == "bridge_home") {
+			// RESOLVE SERVICES
+			let allServices: {
+				[ targetType: string ]: { [targetId: ResourceId ]: ExpandedResource }
+			} = {};
 
-		resource.services.forEach((service: ResourceRef) => {
-			// Find the full-size service in allResources
-			const fullResource = expandResourceLinks(allResources[service.rid], allResources); // I think unnecessary because no nesting?
-			if (!allServices[service.rtype]) { allServices[service.rtype] = {}; }
-			allServices[service.rtype][service.rid] = fullResource;
-		});
+			resource.services.forEach((service: ResourceRef) => {
+				// Find the full-size service in allResources
+				const fullResource = expandResourceLinks(allResources[service.rid], allResources); // I think unnecessary because no nesting?
+				if (!allServices[service.rtype]) { allServices[service.rtype] = {}; }
+				allServices[service.rtype][service.rid] = fullResource;
+			});
 
-		// REPLACE SERVICES
-		let completeResource: ExpandedBasicServiceResource = {
-			...resource,
-			services: allServices
+			// REPLACE SERVICES
+			let completeResource: ExpandedBasicServiceResource = {
+				...resource,
+				services: allServices
+			}
+			return completeResource;
+		} else if ("owner" in resource && resource.owner) {
+			let ownerRid = resource.owner.rid;
+			return expandResourceLinks(allResources[ownerRid], allResources);
+		} else {
+			// No need for lookup/expansion; just clone
+			if ("services" in resource) {
+				throw new Error(`Unexpected 'services' key in non-group resource ${resource.type}`);
+			} else if ("owner" in resource) {
+				throw new Error(`Unexpected 'owner' key in non-group resource ${resource.type}`);
+			} else {
+				// I didn't bother to make a type "BasicResrouceWithoutRefs"...
+				return { ...resource } as unknown as ExpandedResource;
+			}
 		}
-		return completeResource;
-	} else if ("owner" in resource && resource.owner) {
-		let ownerRid = resource.owner.rid;
-		return expandResourceLinks(allResources[ownerRid], allResources);
+	} else if ("bridgeid" in resource) {
+		return { ...resource, type: "bridge" };
 	} else {
-		// No need for lookup/expansion; just clone
-		return { ...resource } as ExpandedBasicResource;
+		return { ...resource, type: "rule" };
 	}
-
 }
 
 
@@ -110,7 +218,12 @@ class API {
 
 	//
 	// MAKE A REQUEST
-	static request({ config = null, method = 'GET', resource = null, data = null, version = 2 }: RequestArgs) {
+	static request(opts: BridgeAutoupdateArgs): Promise<BridgeV1Response>;
+	static request(opts: RulesRequestArgs): Promise<RulesV1Response>;
+	static request(opts: BridgeRequestArgs): Promise<BridgeV1Response>;
+	static request(opts: AllResourcesRequestArgs): Promise<AllResourcesResponse>;
+	static request(opts: ResourceRequestArgs): Promise<BasicResourceUnion>;
+	static request({ config = null, method = 'GET', resource = null, data = null, version = 2 }: RequestArgs): Promise<RequestResponse> {
 		return new Promise((resolve, reject) => {
 			if(!config) {
 				reject("Bridge is not configured!");
@@ -140,6 +253,7 @@ class API {
 						request['url'] += "/clip/v2/resource" + resourceKey;
 						break;
 					default:
+						reject(`Invalid version ${version} passed to API.request`);
 						return false;
 				}
 			}
@@ -156,7 +270,11 @@ class API {
 						resolve(response.data.data);
 					}
 				} else if (version === 1) {
-					resolve(response.data);
+					if (resource === "/rules") {
+						resolve(response.data as RulesV1Response);
+					} else {
+						resolve(response.data);
+					}
 				}
 			})
 			.catch(function(error) {
@@ -167,7 +285,7 @@ class API {
 
 	//
 	// SUBSCRIBE TO BRIDGE EVENTS
-	static subscribe(config: ConfigWithId, callback: (data: EventUpdate) => void) {
+	static subscribe(config: ConfigWithId, callback: (data: EventData[]) => void) {
 		return new Promise((resolve, reject) => {
 			if(!this.events[config.id]) {
 				var sseURL = "https://" + config.bridge + "/eventstream/clip/v2";
@@ -181,15 +299,12 @@ class API {
 				// PIPE MESSAGE TO TARGET FUNCTION
 				this.events[config.id].onmessage = (event) => {
 					if(event && event.type === 'message' && event.data) {
-						const messages = JSON.parse(event.data);
-						for (var i = messages.length - 1; i >= 0; i--)
-						{
-							const message = messages[i];
-							if(message.type === "update")
-							{
-								callback(message.data);
+						const messages: EventUpdate[] = JSON.parse(event.data);
+						messages.forEach((msg: EventUpdate) => {
+							if (msg.type === "update") {
+								callback(msg.data);
 							}
-						}
+						});
 					}
 				};
 
@@ -221,20 +336,20 @@ class API {
 
 	//
 	// PROCESS RESOURCES
-	static processResources(resources:BasicResourceUnion[]) {
+	static processResources(resources: AnyResponse[]): Promise<{ [id: string]: ExpandedResource }> {
 		// SET CURRENT DATE/TIME
 		const currentDateTime = dayjs().format();
 
 		// ACTION!
 		return new Promise((resolve, reject) => {
-			let resourceList: { [id: ResourceId]: BasicResourceUnion } = {};
+			let resourceList: { [id: ResourceId]: AnyResponse } = {};
 			let processedResources: {
 				_groupsOf: { [ groupedServiceId: ResourceId ]: string[] },
-				[ id: ResourceId ]: ExpandedBasicResource|ExpandedBasicServiceResource | { [ groupedServiceId: ResourceId ]: string[] }
+				[ id: ResourceId ]: AnyResponse | { [ groupedServiceId: ResourceId ]: string[] }
 			} = { _groupsOf: {} };
 
 			// CREATE ID BASED OBJECT OF ALL RESOURCES
-			resources.reduce((memo: { [id: ResourceId]: BasicResourceUnion }, resource) => {
+			resources.reduce((memo: { [id: ResourceId]: ExpandedResource }, resource) => {
 				if(resource.type !== "button") {
 					memo[resource.id] = resource;
 				}
@@ -279,4 +394,4 @@ class API {
 }
 
 // EXPORT
-module.exports = new API;
+export default API;

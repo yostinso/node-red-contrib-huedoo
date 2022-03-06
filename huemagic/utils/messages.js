@@ -5,6 +5,8 @@ const dayjs = require('dayjs');
 const colorUtils = require("./color");
 //
 // HUE BRIDGE
+export type ExpandedBridgeV1Response = BridgeV1Response & { type: "bridge"; }
+
 class HueBridgeMessage {
     constructor(resource, options = {}) {
         this.message = {
@@ -252,6 +254,8 @@ class HueMotionMessage {
 exports.HueMotionMessage = HueMotionMessage;
 //
 // HUE RULES
+export type ExpandedRulesV1ResponseItem = RulesV1ResponseItem & { type: "rule"; }
+
 class HueRulesMessage {
     constructor(resource, options = {}) {
         this.message = { payload: {} };

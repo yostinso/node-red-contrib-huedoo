@@ -1,6 +1,7 @@
 const dayjs = require('dayjs');
 const colorUtils = require("./color");
 import * as NodeRed from "node-red";
+import { BridgeV1Response, RulesV1ResponseItem } from "./api";
 import { Light } from "./resource-types";
 
 interface Message {
@@ -8,81 +9,58 @@ interface Message {
     info?: any;
 }
 interface HueBridgeMessageContents extends Message {
-    payload: { id: string } & HueBridgePayload;
-}
-
-interface HueBridgePayload {
-    name?: string;
-    factoryNew: boolean;
-    replacesBridgeId: string | false;
-    dataStoreVersion: string;
-    starterKitId: string | false;
-    softwareVersion: string;
-    apiVersion: string;
-    zigbeeChannel: number;
-    macAddress: string;
-    ipAddress: string;
-    dhcpEnabled: boolean;
-    netmask: string;
-    gateway: string;
-    proxyAddress: string | false;
-    proxyPort: number;
-    utcTime: string;
-    timeZone: string;
-    localTime: string;
-    portalServicesEnabled: boolean;
-    portalConnected: string;
-    linkButtonEnabled: boolean;
-    touchlinkEnabled: boolean;
-    autoUpdatesEnabled: boolean;
-    users: { user: string, name: string, created: string, lastAccess: string }[]
-    updated: string | undefined,
-    model: { id: string, manufacturer: "Philips", name: "Hue v2" }
-}
-
-interface HueBridgeResource {
-    bridgeid: string;
-    name?: string;
-    factorynew: boolean;
-    replacesbridgeid: string;
-    datastoreversion: string;
-    starterkitid?: string;
-    swversion: string;
-    apiversion: string;
-    zigbeechannel: number;
-    mac: string;
-    ipaddress: string;
-    dhcp: boolean;
-    netmask: string;
-    gateway: string;
-    proxyaddress: string;
-    proxyport: number;
-    UTC: string;
-    timezone: string;
-    localtime: string;
-    portalservices: boolean;
-    portalconnection: string;
-    linkbutton: boolean;
-    touchlink?: boolean;
-    autoupdate?: boolean;
-    updated?: string;
-    whitelist?: {
-        [userid: string]: {
-            "last use date": string;
-            "create date": string;
-            "name": string;
-        }
-    }
-    modelid: string;
+    payload: {
+		id: string;
+		name: string;
+		factoryNew: boolean;
+		replacesBridgeId: string | false;
+		dataStoreVersion: string;
+		starterKitId: string | false;
+		softwareVersion: string;
+		apiVersion: string;
+		zigbeeChannel: number;
+		macAddress: string;
+		ipAddress: string;
+		dhcpEnabled: boolean;
+		netmask: string;
+		gateway: string;
+		proxyAddress: string | false;
+		proxyPort: number;
+		utcTime: string;
+		timeZone: string;
+		localTime: string;
+		portalServicesEnabled: boolean;
+		portalConnected: string;
+		linkButtonEnabled: boolean;
+		touchlinkEnabled: boolean;
+		autoUpdatesEnabled: boolean;
+		updated: string;
+		model: {
+			id: string;
+			manufacturer: "Philips",
+			name: "Hue v2",
+		}
+		users: {
+			user: string;
+			name: string;
+			created: string;
+			lastAccess: string;
+		}[]
+	}
 }
 
 //
 // HUE BRIDGE
-class HueBridgeMessage
-{
+export type TypedBridgeV1Response = BridgeV1Response & {
+	type: "bridge";
+	id: string;
+	id_v1: string;
+}
+
+class HueBridgeMessage {
     private readonly message: HueBridgeMessageContents;
 
-	constructor(resource: HueBridgeResource, options: { autoupdate?: boolean } = {})
+	constructor(resource: TypedBridgeV1Response, options: { autoupdate?: boolean } = {})
 	{
         this.message = {
             payload: {
@@ -446,25 +424,30 @@ class HueMotionMessage
 
 //
 // HUE RULES
-class HueRulesMessage
-{
+export type TypedRulesV1ResponseItem = RulesV1ResponseItem & {
+	type: "rule";
+	id: string;
+	id_v1: string;
+	_owner: string;
+};
+
+class HueRulesMessage {
     private message: Message & { conditions?: any, actions?: any };
-	constructor(resource: any, options = {})
-	{
+	constructor(resource: TypedRulesV1ResponseItem, options = {}) {
 		this.message = { payload: {} };
-		this.message.payload.enabled = (resource["status"] == "enabled"); // NEW!
-		this.message.payload.triggered = (resource["lasttriggered"] != null) ? dayjs(resource["lasttriggered"]).format() : false;
+		this.message.payload.enabled = (resource.status == "enabled"); // NEW!
+		this.message.payload.triggered = (resource.lasttriggered != null) ? dayjs(resource.lasttriggered).format() : false;
 
 		this.message.info = {};
-		this.message.info.id = resource["id"];
-		this.message.info.created = dayjs(resource["created"]).format();
-		this.message.info.name = resource["name"];
-		this.message.info.timesTriggered = resource["timestriggered"];
-		this.message.info.owner = resource["_owner"];
-		this.message.info.status = resource["status"];
+		this.message.info.id = resource.id;
+		this.message.info.created = dayjs(resource.creationtime).format();
+		this.message.info.name = resource.name;
+		this.message.info.timesTriggered = resource.timestriggered;
+		this.message.info.owner = resource._owner;
+		this.message.info.status = resource.status;
 
-		this.message.conditions = resource["conditions"];
-		this.message.actions = resource["actions"];
+		this.message.conditions = resource.conditions;
+		this.message.actions = resource.actions;
 	}
 
 	get msg()

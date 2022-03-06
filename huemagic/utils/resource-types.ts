@@ -30,7 +30,6 @@ export interface BaseResourceData {
 }
 
 export interface BasicResource extends BaseResourceData {
-    kind: "b"
     type: "light" | "scene" | "grouped_light" | "bridge" | "device_power" |
           "zigbee_connectivity" | "zgp_connectivity" | "motion" | "temperature" |
           "light_level" | "button" | "behavior_script" | "behavior_instance" |
@@ -40,10 +39,9 @@ export interface BasicResource extends BaseResourceData {
 }
 
 export interface BasicServiceResource extends BaseResourceData {
-    kind: "a"
     type: "device" | "room" | "zone" | "bridge_home";
     services: ResourceRef[];
-    grouped_services?: ResourceRef[];
+    grouped_services?: ResourceRef[]
 }
 export type BasicResourceUnion = BasicResource | BasicServiceResource;
 
@@ -71,7 +69,7 @@ type ColorSettings = {
     }
 }
 
-export type Light = BaseResourceData & ColorSettings & {
+export interface Light extends BasicResource, ColorSettings {
     type: "light"
     dynamics?: {
         speed: number;
@@ -101,7 +99,7 @@ type ColorTemperaturePaletteGet = {
     color_temperature: { mirek: number; }
     dimming: { brightness: number }
 }
-export type Scene = BaseResourceData & {
+export interface Scene extends BasicResource {
     type: "scene";
     metadata?: {
         name: string;
@@ -127,16 +125,10 @@ type ServiceResource = {
     services: LightRef 
 }
 
-export type Room = BaseResourceData & {
-    grouped_services: ResourceRef[];
-    services: LightRef[];
-    metadata?: { name: string; }
-    children: DeviceRef[];
-}
-
+export type EventData = Light | Scene;
 export type EventUpdate = {
     type: "update";
     id: UpdateId;
     creationTime: "string";
-    data: Light | Scene | Room;
+    data: EventData[];
 }

@@ -1,8 +1,8 @@
 import EventEmitter from "events";
 import * as NodeRed from "node-red";
 
-const API = require('./utils/api');
-const merge = require('./utils/merge');
+import API, { AnyResource, AnyResponse, ExpandedResource, RulesRequestArgs } from './utils/api';
+import merge from "./utils/merge";
 const events = require('events');
 const dayjs = require('dayjs');
 const diff = require("deep-object-diff").diff;
@@ -18,28 +18,35 @@ import {
 	HueTemperatureMessage,
 	HueBrightnessMessage,
 	HueButtonsMessage,
-	HueRulesMessage
+	HueRulesMessage,
+	TypedRulesV1ResponseItem,
+	TypedBridgeV1Response,
 } from "./utils/messages";
+import { BasicResourceUnion } from "./utils/resource-types";
+import { BridgeV1Response, RulesV1Response } from "./utils/api";
 
 interface HueBridgeDef extends NodeRed.NodeDef {
-
+	autoupdates?: boolean;
+	disableupdates?: boolean;
+	bridge: string;
+	key: string;
 }
 
 class HueBridge {
     private readonly node: NodeRed.Node; 
     private readonly config: HueBridgeDef;
 	private nodeActive: boolean = true;
-	private resources: { [ id: string ]: object } = {};
+	private resources: { [ id: string ]: ExpandedResource } = {};
 	private resourcesInGroups: object = {};
 	private lastStates: object = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
-	private firmwareUpdateTimeout: null = null;
+	private firmwareUpdateTimeout?: number;
 
 	// RESOURCE ID PATTERN
 	static readonly validResourceID = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/gi;
 
-    constructor(RED: NodeRed.NodeAPI, node: NodeRed.Node, config: HueLightDef) {
+    constructor(RED: NodeRed.NodeAPI, node: NodeRed.Node, config: HueBridgeDef) {
         RED.nodes.createNode(node, config);
         this.node = node;
         this.config = config;
@@ -67,10 +74,10 @@ class HueBridge {
 		})
 		.then(() => {
 			// START REFRESHING STATES
-			this.node.keepUpdated();
+			this.keepUpdated();
 
 			// START LOOKING FOR FIRMWARE-UPDATES
-			this.node.autoUpdateFirmware();
+			this.autoUpdateFirmware();
 			return true;
 		})
 		.catch((error) => {
@@ -80,39 +87,42 @@ class HueBridge {
 		});
 	}
 
-	getAllResources() {
+	getAllResources(): Promise<AnyResource[]> {
 		return new Promise((resolve, reject) => {
-			let allResources = [];
+			let allResources: AnyResource[] = [];
 
 			// GET BRIDGE INFORMATION
 			this.getBridgeInformation().then((bridgeInformation) => {
 				// PUSH TO RESOURCES
-				allResources.push(bridgeInformation);
+				allResources.push({
+					...bridgeInformation,
+					type: "bridge",
+					id: bridgeInformation.bridgeid,
+					id_v1: "/config"
+				});
 
 				// CONTINUE WITH ALL RESOURCES
 				return API.request({ config: this.config, resource: "all" });
 			}).then((v2Resources) => {
 				// MERGE RESOURCES
-				allResources = [ ...allResources, v2Resources ];
+				allResources.push(...v2Resources);
 
 				// GET RULES (LEGACY API)
 				return API.request({ config: this.config, resource: "/rules", version: 1 });
 			}).then((rules) => {
-				for (var [id, rule] of Object.entries(rules)) {
-					// "RENAME" OWNER
-					rule["_owner"] = rule["owner"];
-					delete rule["owner"];
-
-					// ADD RULE ID(S)
-					rule["id"] = "rule_" + id;
-					rule["id_v1"] = "/rules/" + id;
-
-					// ADD RULE TYPE
-					rule["type"] = "rule";
-
-					// PUSH RULES
-					allResources.push(rule);
-				}
+				allResources.push(
+					...Object.entries(rules).map(([ id, rule ]) => {
+						let newRule: TypedRulesV1ResponseItem = {
+							...rule,
+							_owner: rule.owner,
+							owner: undefined,
+							id: `rule_${id}`,
+							id_v1: `/rules/${id}`,
+							type: "rule",
+						}
+						return newRule;
+					})
+				);
 
 				resolve(allResources);
 			})
@@ -120,24 +130,150 @@ class HueBridge {
 		});
 	}
 
-	getBridgeInformation(replaceResources = false) {
+	getBridgeInformation(replaceResources = false): Promise<TypedBridgeV1Response> {
 		return new Promise((resolve, reject) => {
 			API.request({ config: this.config, resource: "/config", version: 1 })
 			.then((bridgeInformation) => {
 				// PREPARE TO MATCH V2 RESOURCES
-				bridgeInformation.id = "bridge";
-				bridgeInformation.id_v1 = "/config";
-				bridgeInformation.updated = dayjs().format();
+				 const typedBridge: TypedBridgeV1Response = {
+					...bridgeInformation,
+					type: "bridge",
+					id: "bridge",
+					id_v1: "/config",
+					updated: dayjs().format(),
+				 }
 
 				// ALSO REPLACE CURRENT RESOURCE?
 				if(replaceResources === true) {
-					this.resources[bridgeInformation.id] = bridgeInformation;
+					this.resources[typedBridge.id] = typedBridge;
 				}
 
 				// GIVE BACK
-				resolve(bridgeInformation);
+				resolve(typedBridge);
 			}).catch((error) => reject(error));
 		});
+	}
+
+	// EMIT INITIAL STATES -> NODES
+	emitInitialStates() {
+		return new Promise((resolve, reject) => {
+			// PUSH STATES
+			setTimeout(() => {
+				// PUSH ALL STATES
+				for (const [id, resource] of Object.entries(this.resources)) {
+					this.pushUpdatedState(resource, resource.type, true);
+				}
+
+				resolve(true);
+			}, 500);
+		});
+	}
+
+	keepUpdated() {
+		if(!this.config.disableupdates)
+		{
+			this.node.log("Keeping nodes up-to-date…");
+
+			// REFRESH STATES (SSE)
+			this.refreshStatesSSE();
+		}
+	}
+
+	refreshStatesSSE() {
+		this.node.log("Subscribing to bridge events…");
+		API.subscribe(this.config, (updates) => {
+			const currentDateTime = dayjs().format();
+
+
+			updates.forEach((resource) => {
+				let { id, type } = resource;
+
+				let previousState: BasicResourceUnion | false = false;
+
+				// HAS OWNER?
+				if (resource.owner) {
+					let targetId = resource.owner.rid;
+
+					if (this.resources[targetId]) {
+						// GET PREVIOUS STATE
+						previousState = this.resources[targetId]["services"][type][id];
+
+						// IS BUTTON? -> REMOVE PREVIOUS STATES
+						if(type === "button") {
+							Object.keys(this.resources[targetId]["services"]["button"]).forEach((oneButtonID) => {
+								delete this.resources[targetId]["services"]["button"][oneButtonID]["button"];
+							});
+						}
+					}
+				} else if (this.resources[id]) {
+					// GET PREVIOUS STATE
+					previousState = this.resources[id];
+				}
+
+				// NO PREVIOUS STATE?
+				if (previousState) { return false; }
+
+				// CHECK DIFFERENCES
+				const mergedState = merge.deep(previousState, resource);
+				const updatedResources = diff(previousState, mergedState);
+
+				if(Object.values(updatedResources).length > 0)
+				{
+					if(resource["owner"])
+					{
+						let targetId = resource["owner"]["rid"];
+
+						scope.resources[targetId]["services"][type][id] = mergedState;
+						scope.resources[targetId]["updated"] = currentDateTime;
+
+						// PUSH STATE
+						scope.pushUpdatedState(scope.resources[targetId], resource.type);
+					}
+					else
+					{
+						scope.resources[id] = mergedState;
+						scope.resources[id]["updated"] = currentDateTime;
+
+						// PUSH STATE
+						scope.pushUpdatedState(scope.resources[id], resource.type);
+					}
+				}
+			});
+		});
+	}
+
+	autoUpdateFirmware() {
+		if (this.config.autoupdates === true || this.config.autoupdates === undefined) {
+			if (this.firmwareUpdateTimeout !== undefined) { clearTimeout(this.firmwareUpdateTimeout); }
+
+			API.request({
+				config: this.config,
+				method: "PUT",
+				resource: "/config",
+				version: 1,
+				data: {
+					swupdate2: {
+						checkforupdate: true,
+						install: true
+					}
+				}
+			})
+			.then(function(status)
+			{
+				if(scope.nodeActive == true)
+				{
+					scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
+				}
+			})
+			.catch(function(error)
+			{
+				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
+				if(scope.nodeActive == true)
+				{
+					scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
+				}
+			});
+		}
 	}
 }
 
@@ -147,188 +283,10 @@ module.exports = function(RED) {
 		// CREATE NODE
 		RED.nodes.createNode(scope, config);
 
-		// FETCH BRIDGE INFORMATION
-		this.getBridgeInformation = function(replaceResources = false)
-		{
-			return new Promise(function(resolve, reject)
-			{
-				API.request({ config: config, resource: "/config", version: 1 })
-				.then(function(bridgeInformation)
-				{
-					// PREPARE TO MATCH V2 RESOURCES
-					bridgeInformation.id = "bridge";
-					bridgeInformation.id_v1 = "/config";
-					bridgeInformation.updated = dayjs().format();
-
-					// ALSO REPLACE CURRENT RESOURCE?
-					if(replaceResources === true)
-					{
-						scope.resources[bridgeInformation.id] = bridgeInformation;
-					}
-
-					// GIVE BACK
-					resolve(bridgeInformation);
-				})
-				.catch(function(error)
-				{
-					reject(error);
-				});
-			});
-		}
-
 		// GET ALL RESOURCES + RULES
-		this.getAllResources = function()
-		{
-			return new Promise(function(resolve, reject)
-			{
-				var allResources = [];
 
-				// GET BRIDGE INFORMATION
-				scope.getBridgeInformation()
-				.then(function(bridgeInformation)
-				{
-					// PUSH TO RESOURCES
-					allResources.push(bridgeInformation);
-
-					// CONTINUE WITH ALL RESOURCES
-					return API.request({ config: config, resource: "all" });
-				})
-				.then(function(v2Resources)
-				{
-					// MERGE RESOURCES
-					allResources = allResources.concat(v2Resources);
-
-					// GET RULES (LEGACY API)
-					return API.request({ config: config, resource: "/rules", version: 1 });
-				})
-				.then(function(rules)
-				{
-					for (var [id, rule] of Object.entries(rules))
-					{
-						// "RENAME" OWNER
-						rule["_owner"] = rule["owner"];
-						delete rule["owner"];
-
-						// ADD RULE ID(S)
-						rule["id"] = "rule_" + id;
-						rule["id_v1"] = "/rules/" + id;
-
-						// ADD RULE TYPE
-						rule["type"] = "rule";
-
-						// PUSH RULES
-						allResources.push(rule);
-					}
-
-					resolve(allResources);
-				})
-				.catch(function(error) { reject(error); });
-			});
-		}
-
-		// EMIT INITIAL STATES -> NODES
-		this.emitInitialStates = function(resources = false)
-		{
-			return new Promise(function(resolve, reject)
-			{
-				// PUSH STATES
-				setTimeout(function()
-				{
-					// PUSH ALL STATES
-					for (const [id, resource] of Object.entries(scope.resources))
-					{
-						scope.pushUpdatedState(resource, resource.type, true);
-					}
-
-					resolve(true);
-				}, 500);
-			});
-		}
-
-		// KEEEP STATES UP-TO-DATE
-		this.keepUpdated = function()
-		{
-			if(!config.disableupdates)
-			{
-				scope.log("Keeping nodes up-to-date…");
-
-				// REFRESH STATES (SSE)
-				this.refreshStatesSSE();
-			}
-		}
 
 		// GET UPDATED STATES (SSE)
-		this.refreshStatesSSE = function()
-		{
-			scope.log("Subscribing to bridge events…");
-			API.subscribe(config, function(updates)
-			{
-				const currentDateTime = dayjs().format();
-
-				for(let resource of updates)
-				{
-					let id = resource.id;
-					let type = resource.type;
-
-					let previousState = false;
-
-					// HAS OWNER?
-					if(resource["owner"])
-					{
-						let targetId = resource["owner"]["rid"];
-
-						if(scope.resources[targetId])
-						{
-							// GET PREVIOUS STATE
-							previousState = scope.resources[targetId]["services"][type][id];
-
-							// IS BUTTON? -> REMOVE PREVIOUS STATES
-							if(type === "button")
-							{
-								for (const [oneButtonID, oneButton] of Object.entries(scope.resources[targetId]["services"]["button"]))
-								{
-									delete scope.resources[targetId]["services"]["button"][oneButtonID]["button"];
-								}
-							}
-						}
-					}
-					else if(scope.resources[id])
-					{
-						// GET PREVIOUS STATE
-						previousState = scope.resources[id];
-					}
-
-					// NO PREVIOUS STATE?
-					if(!previousState) { return false; }
-
-					// CHECK DIFFERENCES
-					const mergedState = merge.deep(previousState, resource);
-					const updatedResources = diff(previousState, mergedState);
-
-					if(Object.values(updatedResources).length > 0)
-					{
-						if(resource["owner"])
-						{
-							let targetId = resource["owner"]["rid"];
-
-							scope.resources[targetId]["services"][type][id] = mergedState;
-							scope.resources[targetId]["updated"] = currentDateTime;
-
-							// PUSH STATE
-							scope.pushUpdatedState(scope.resources[targetId], resource.type);
-						}
-						else
-						{
-							scope.resources[id] = mergedState;
-							scope.resources[id]["updated"] = currentDateTime;
-
-							// PUSH STATE
-							scope.pushUpdatedState(scope.resources[id], resource.type);
-						}
-					}
-				}
-			});
-		}
 
 		// PUSH UPDATED STATE
 		this.pushUpdatedState = function(resource, updatedType, suppressMessage = false)
@@ -623,42 +581,6 @@ module.exports = function(RED) {
 			}
 		}
 
-		// AUTO UPDATES?
-		this.autoUpdateFirmware = function()
-		{
-			if((config.autoupdates && config.autoupdates == true) || typeof config.autoupdates == 'undefined')
-			{
-				if(scope.firmwareUpdateTimeout !== null) { clearTimeout(scope.firmwareUpdateTimeout); };
-				API.request({
-					config: config,
-					method: "PUT",
-					resource: "/config",
-					version: 1,
-					data: {
-						swupdate2: {
-							checkforupdate: true,
-							install: true
-						}
-					}
-				})
-				.then(function(status)
-				{
-					if(scope.nodeActive == true)
-					{
-						scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
-					}
-				})
-				.catch(function(error)
-				{
-					// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
-					if(scope.nodeActive == true)
-					{
-						scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
-					}
-				});
-			}
-		}
-
 		//
 		// START THE MAGIC
 		this.start();
@@ -811,12 +733,10 @@ module.exports = function(RED) {
 		else
 		{
 			API.request({ config: { bridge: req.query.bridge, key: req.query.key }, resource: "all" })
-			.then(function(allResources)
-			{
+			.then((allResources) => {
 				return API.processResources(allResources);
 			})
-			.then(function(processedResources)
-			{
+			.then((processedResources) => {
 				let targetDevices = {};
 
 				for (const [id, resource] of Object.entries(processedResources))
@@ -867,7 +787,7 @@ module.exports = function(RED) {
 				// GIVE BACK
 				res.end(JSON.stringify(targetDevices));
 			})
-			.catch(function(error) {
+			.catch((error) => {
 				res.status(500).send(JSON.stringify(error));
 			});
 		}
