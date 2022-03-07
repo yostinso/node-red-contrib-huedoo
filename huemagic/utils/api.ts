@@ -140,49 +140,45 @@ interface ExpandedBasicResource extends BaseResourceData {
 
 export type ExpandedResource = ExpandedBasicResource | ExpandedBasicServiceResource | TypedBridgeV1Response | TypedRulesV1ResponseItem;
 
-function expandResourceLinks(resource: AnyResponse, allResources: { [id: string]: (BasicResource | BasicServiceResource) }): ExpandedResource {
+function expandResourceLinks(resource: AnyResource, allResources: { [id: string]: AnyResource }): ExpandedResource {
 	// We either have an owner _OR_ we have services
-	if ("type" in resource) {
-		if (resource.type == "device" || resource.type == "room" || resource.type == "zone" || resource.type == "bridge_home") {
-			// RESOLVE SERVICES
-			let allServices: {
-				[ targetType: string ]: { [targetId: ResourceId ]: ExpandedResource }
-			} = {};
+	if (resource.type == "device" || resource.type == "room" || resource.type == "zone" || resource.type == "bridge_home") {
+		// RESOLVE SERVICES
+		let allServices: {
+			[ targetType: string ]: { [targetId: ResourceId ]: ExpandedResource }
+		} = {};
 
-			resource.services.forEach((service: ResourceRef) => {
-				// Find the full-size service in allResources
-				const fullResource = expandResourceLinks(allResources[service.rid], allResources); // I think unnecessary because no nesting?
-				if (!allServices[service.rtype]) { allServices[service.rtype] = {}; }
-				allServices[service.rtype][service.rid] = fullResource;
-			});
+		resource.services.forEach((service: ResourceRef) => {
+			// Find the full-size service in allResources
+			const fullResource = expandResourceLinks(allResources[service.rid], allResources); // I think unnecessary because no nesting?
+			if (!allServices[service.rtype]) { allServices[service.rtype] = {}; }
+			allServices[service.rtype][service.rid] = fullResource;
+		});
 
-			// REPLACE SERVICES
-			let completeResource: ExpandedBasicServiceResource = {
-				...resource,
-				services: allServices
-			}
-			return completeResource;
-		} else if ("owner" in resource && resource.owner) {
-			let ownerRid = resource.owner.rid;
-			return expandResourceLinks(allResources[ownerRid], allResources);
-		} else {
-			// No need for lookup/expansion; just clone
-			if ("services" in resource) {
-				throw new Error(`Unexpected 'services' key in non-group resource ${resource.type}`);
-			} else if ("owner" in resource) {
-				throw new Error(`Unexpected 'owner' key in non-group resource ${resource.type}`);
-			} else {
-				// I didn't bother to make a type "BasicResrouceWithoutRefs"...
-				return { ...resource } as unknown as ExpandedResource;
-			}
+		// REPLACE SERVICES
+		let completeResource: ExpandedBasicServiceResource = {
+			...resource,
+			services: allServices
 		}
-	} else if ("bridgeid" in resource) {
-		return { ...resource, type: "bridge" };
+		return completeResource;
+	} else if ("owner" in resource && resource.owner) {
+		let ownerRid = resource.owner.rid;
+		return expandResourceLinks(allResources[ownerRid], allResources);
 	} else {
-		return { ...resource, type: "rule" };
+		// No need for lookup/expansion; just clone
+		if ("services" in resource) {
+			throw new Error(`Unexpected 'services' key in non-group resource ${resource.type}`);
+		} else if ("owner" in resource) {
+			throw new Error(`Unexpected 'owner' key in non-group resource ${resource.type}`);
+		} else {
+			// I didn't bother to make a type "BasicResrouceWithoutRefs"...
+			return { ...resource } as unknown as ExpandedResource;
+		}
 	}
 }
 
+export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource };
+export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
 
 class API {
 	// EVENTS
@@ -272,6 +268,8 @@ class API {
 				} else if (version === 1) {
 					if (resource === "/rules") {
 						resolve(response.data as RulesV1Response);
+					} else if (resource === "/config") {
+						resolve(response.data as BridgeV1Response);
 					} else {
 						resolve(response.data);
 					}
@@ -336,20 +334,18 @@ class API {
 
 	//
 	// PROCESS RESOURCES
-	static processResources(resources: AnyResponse[]): Promise<{ [id: string]: ExpandedResource }> {
+	static processResources(resources: AnyResource[]): Promise<[ProcessedResources, GroupsOfResources]> {
 		// SET CURRENT DATE/TIME
 		const currentDateTime = dayjs().format();
 
 		// ACTION!
 		return new Promise((resolve, reject) => {
-			let resourceList: { [id: ResourceId]: AnyResponse } = {};
-			let processedResources: {
-				_groupsOf: { [ groupedServiceId: ResourceId ]: string[] },
-				[ id: ResourceId ]: AnyResponse | { [ groupedServiceId: ResourceId ]: string[] }
-			} = { _groupsOf: {} };
+			let resourceList: { [id: ResourceId]: AnyResource } = {};
+			let processedResources: ProcessedResources = {};
+			let groupsOf: GroupsOfResources = {};
 
 			// CREATE ID BASED OBJECT OF ALL RESOURCES
-			resources.reduce((memo: { [id: ResourceId]: ExpandedResource }, resource) => {
+			resources.reduce((memo: { [id: ResourceId]: AnyResource }, resource) => {
 				if(resource.type !== "button") {
 					memo[resource.id] = resource;
 				}
@@ -379,8 +375,8 @@ class API {
 				if ("grouped_services" in fullResource && fullResource.grouped_services) {
 					fullResource.grouped_services.forEach((groupedService) => {
 						const groupedServiceID = groupedService.rid;
-						if(!processedResources["_groupsOf"][groupedServiceID]) { processedResources["_groupsOf"][groupedServiceID] = []; }
-						processedResources["_groupsOf"][groupedServiceID].push(fullResource.id);
+						if (!groupsOf[groupedServiceID]) { groupsOf[groupedServiceID] = []; }
+						groupsOf[groupedServiceID].push(fullResource.id);
 					});
 				}
 
@@ -388,7 +384,7 @@ class API {
 				processedResources[fullResource.id] = fullResource;
 			});
 
-			resolve(processedResources);
+			resolve([ processedResources, groupsOf ]);
 		});
 	}
 }

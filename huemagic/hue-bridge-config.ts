@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import * as NodeRed from "node-red";
 
-import API, { AnyResource, AnyResponse, ExpandedResource, RulesRequestArgs } from './utils/api';
+import API, { AnyResource, AnyResponse, ExpandedResource, ProcessedResources, RulesRequestArgs } from './utils/api';
 import merge from "./utils/merge";
 const events = require('events');
 const dayjs = require('dayjs');
@@ -22,7 +22,7 @@ import {
 	TypedRulesV1ResponseItem,
 	TypedBridgeV1Response,
 } from "./utils/messages";
-import { BasicResourceUnion } from "./utils/resource-types";
+import { BasicResourceUnion, ResourceId, ResourceType } from "./utils/resource-types";
 import { BridgeV1Response, RulesV1Response } from "./utils/api";
 
 interface HueBridgeDef extends NodeRed.NodeDef {
@@ -36,7 +36,8 @@ class HueBridge {
     private readonly node: NodeRed.Node; 
     private readonly config: HueBridgeDef;
 	private nodeActive: boolean = true;
-	private resources: { [ id: string ]: ExpandedResource } = {};
+	private resources: ProcessedResources = {};
+	private groupsOfResources: { [ groupedServiceId: ResourceId ]: string[] } = {};
 	private resourcesInGroups: object = {};
 	private lastStates: object = {};
 	private readonly events: EventEmitter;
@@ -64,9 +65,10 @@ class HueBridge {
 			this.node.log("Processing bridge resources…");
 			return API.processResources(allResources);
 		})
-		.then((allResources) => {
+		.then(([ allResources, groupsOfResources ]) => {
 			// SAVE CURRENT RESOURCES
 			this.resources = allResources;
+			this.groupsOfResources = groupsOfResources;
 
 			// EMIT INITIAL STATES -> NODES
 			this.node.log("Initial emit of resource states…");
@@ -115,7 +117,6 @@ class HueBridge {
 						let newRule: TypedRulesV1ResponseItem = {
 							...rule,
 							_owner: rule.owner,
-							owner: undefined,
 							id: `rule_${id}`,
 							id_v1: `/rules/${id}`,
 							type: "rule",
@@ -160,9 +161,9 @@ class HueBridge {
 			// PUSH STATES
 			setTimeout(() => {
 				// PUSH ALL STATES
-				for (const [id, resource] of Object.entries(this.resources)) {
+				Object.entries(this.resources).forEach(([id, resource]) => {
 					this.pushUpdatedState(resource, resource.type, true);
-				}
+				});
 
 				resolve(true);
 			}, 500);
@@ -188,7 +189,7 @@ class HueBridge {
 			updates.forEach((resource) => {
 				let { id, type } = resource;
 
-				let previousState: BasicResourceUnion | false = false;
+				let previousState: ExpandedResource | false = false;
 
 				// HAS OWNER?
 				if (resource.owner) {
@@ -223,19 +224,19 @@ class HueBridge {
 					{
 						let targetId = resource["owner"]["rid"];
 
-						scope.resources[targetId]["services"][type][id] = mergedState;
-						scope.resources[targetId]["updated"] = currentDateTime;
+						this.resources[targetId]["services"][type][id] = mergedState;
+						this.resources[targetId]["updated"] = currentDateTime;
 
 						// PUSH STATE
-						scope.pushUpdatedState(scope.resources[targetId], resource.type);
+						this.pushUpdatedState(this.resources[targetId], resource.type);
 					}
 					else
 					{
-						scope.resources[id] = mergedState;
-						scope.resources[id]["updated"] = currentDateTime;
+						this.resources[id] = mergedState;
+						this.resources[id]["updated"] = currentDateTime;
 
 						// PUSH STATE
-						scope.pushUpdatedState(scope.resources[id], resource.type);
+						this.pushUpdatedState(this.resources[id], resource.type);
 					}
 				}
 			});
@@ -275,6 +276,25 @@ class HueBridge {
 			});
 		}
 	}
+
+	pushUpdatedState(resource: ExpandedResource, updatedType: ResourceType, suppressMessage: boolean = false): void {
+		const msg = { id: resource.id, type: resource.type, updatedType: updatedType, services: resource["services"] ? Object.keys(resource["services"]) : [], suppressMessage: suppressMessage };
+		this.events.emit(this.config.id + "_" + resource.id, msg);
+		this.events.emit(this.config.id + "_" + "globalResourceUpdates", msg);
+
+		// RESOURCE CONTAINS SERVICES? -> SERVICE IN GROUP? -> EMIT CHANGES TO GROUPS ALSO
+		if(this.groupsOfResources[resource.id])
+		{
+			for (var g = this.groupsOfResources[resource.id].length - 1; g >= 0; g--)
+			{
+				const groupID = this.groupsOfResources[resource.id][g];
+				const groupMessage = { id: groupID, type: "group", updatedType: updatedType, services: [], suppressMessage: suppressMessage };
+
+				this.events.emit(this.config.id + "_" + groupID, groupMessage);
+				this.events.emit(this.config.id + "_" + "globalResourceUpdates", groupMessage);
+			}
+		}
+	}
 }
 
 module.exports = function(RED) {
@@ -289,25 +309,6 @@ module.exports = function(RED) {
 		// GET UPDATED STATES (SSE)
 
 		// PUSH UPDATED STATE
-		this.pushUpdatedState = function(resource, updatedType, suppressMessage = false)
-		{
-			const msg = { id: resource.id, type: resource.type, updatedType: updatedType, services: resource["services"] ? Object.keys(resource["services"]) : [], suppressMessage: suppressMessage };
-			this.events.emit(config.id + "_" + resource.id, msg);
-			this.events.emit(config.id + "_" + "globalResourceUpdates", msg);
-
-			// RESOURCE CONTAINS SERVICES? -> SERVICE IN GROUP? -> EMIT CHANGES TO GROUPS ALSO
-			if(this.resources["_groupsOf"][resource.id])
-			{
-				for (var g = this.resources["_groupsOf"][resource.id].length - 1; g >= 0; g--)
-				{
-					const groupID = this.resources["_groupsOf"][resource.id][g];
-					const groupMessage = { id: groupID, type: "group", updatedType: updatedType, services: [], suppressMessage: suppressMessage };
-
-					this.events.emit(config.id + "_" + groupID, groupMessage);
-					this.events.emit(config.id + "_" + "globalResourceUpdates", groupMessage);
-				}
-			}
-		}
 
 		// GET RESOURCE (FROM NODES)
 		this.get = function(type, id = false, options = {})
@@ -735,8 +736,7 @@ module.exports = function(RED) {
 			API.request({ config: { bridge: req.query.bridge, key: req.query.key }, resource: "all" })
 			.then((allResources) => {
 				return API.processResources(allResources);
-			})
-			.then((processedResources) => {
+			}).then((processedResources) => {
 				let targetDevices = {};
 
 				for (const [id, resource] of Object.entries(processedResources))

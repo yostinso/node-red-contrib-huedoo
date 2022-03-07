@@ -7,7 +7,7 @@ export type ResourceType = "light" | "scene" | "room" | "zone" | "bridge_home" |
 	"device" | "bridge" | "device_power" | "zigbee_connectivity" | "zgp_connectivity" |
 	"motion" | "temperature" | "light_level" | "button" | "behavior_script" |
 	"behavior_instance" | "geofence_client" | "geolocation" | "entertainment_configuration" |
-	"entertainment" | "homekit" | "all";
+	"entertainment" | "homekit" | "all" | "rule";
 
 export type Resource = {
     id: ResourceId;
@@ -120,12 +120,21 @@ export interface Scene extends BasicResource {
     }
     speed: number;
 }
+export interface Button extends BasicResource {
+    type: "button";
+    metadata?: {
+        control_id: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+    }
+    button?: {
+        last_event: "initial_press" | "repeat" | "short_release" | "long_release" | "double_short_release"
+    }
+}
 
 type ServiceResource = {
     services: LightRef 
 }
 
-export type EventData = Light | Scene;
+export type EventData = Light | Scene | Button;
 export type EventUpdate = {
     type: "update";
     id: UpdateId;

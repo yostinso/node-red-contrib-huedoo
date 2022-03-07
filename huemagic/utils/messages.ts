@@ -55,6 +55,7 @@ export type TypedBridgeV1Response = BridgeV1Response & {
 	type: "bridge";
 	id: string;
 	id_v1: string;
+	types?: string[];
 }
 
 class HueBridgeMessage {
@@ -424,11 +425,30 @@ class HueMotionMessage
 
 //
 // HUE RULES
-export type TypedRulesV1ResponseItem = RulesV1ResponseItem & {
+export type TypedRulesV1ResponseItem = {
 	type: "rule";
 	id: string;
 	id_v1: string;
 	_owner: string;
+	types?: string[];
+	updated?: string;
+
+	// Below needs to stay in sync with RulesV1ResponseItem but remove the 'owner' field
+    name: string;
+    lasttriggered: string;
+    creationtime: string;
+    timestriggered: number;
+    status: string;
+    conditions: {
+        address: string;
+        operator: string;
+        value?: string;
+    }[]
+    actions: {
+        address: string;
+        method: "GET" | "PUT" | "DELETE";
+        body: object
+    }[]
 };
 
 class HueRulesMessage {
