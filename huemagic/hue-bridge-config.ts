@@ -3,6 +3,7 @@ import * as NodeRed from "node-red";
 
 import API, { AnyResource, AnyResponse, ExpandedResource, ProcessedResources, RulesRequestArgs } from './utils/api';
 import merge from "./utils/merge";
+
 const events = require('events');
 const dayjs = require('dayjs');
 const diff = require("deep-object-diff").diff;
@@ -22,7 +23,7 @@ import {
 	TypedRulesV1ResponseItem,
 	TypedBridgeV1Response,
 } from "./utils/messages";
-import { BasicResourceUnion, ResourceId, ResourceType } from "./utils/resource-types";
+import { BasicResourceUnion, Light, ResourceId, ResourceType } from "./utils/resource-types";
 import { BridgeV1Response, RulesV1Response } from "./utils/api";
 
 interface HueBridgeDef extends NodeRed.NodeDef {
@@ -42,7 +43,7 @@ class HueBridge {
 	private lastStates: object = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
-	private firmwareUpdateTimeout?: number;
+	private firmwareUpdateTimeout?: NodeJS.Timeout;
 
 	// RESOURCE ID PATTERN
 	static readonly validResourceID = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/gi;
@@ -259,19 +260,15 @@ class HueBridge {
 					}
 				}
 			})
-			.then(function(status)
-			{
-				if(scope.nodeActive == true)
-				{
-					scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
+			.then((status) => {
+				if(this.nodeActive == true) {
+					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			})
-			.catch(function(error)
-			{
+			.catch((error) => {
 				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
-				if(scope.nodeActive == true)
-				{
-					scope.firmwareUpdateTimeout = setTimeout(function(){ scope.autoUpdateFirmware(); }, 60000 * 720);
+				if(this.nodeActive == true) {
+					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			});
 		}
@@ -295,6 +292,78 @@ class HueBridge {
 			}
 		}
 	}
+
+	get(type: ResourceType, id: ResourceId | false = false, options = {}) {
+		if (id) {
+			// GET RESOURCE BY ID
+			if (!this.resources[id]) { return false; }
+			const targetResource: ExpandedResource = this.resources[id];
+			const targetId = targetResource.id;
+			const lastState = this.lastStates[type+targetResource.id] ? Object.assign({}, this.lastStates[type+targetResource.id]) : false;
+
+			let message;
+			switch (targetResource.type) {
+				case "bridge":
+					message = new HueBridgeMessage(targetResource, options);
+					return message.msg;
+				case "light":
+					message = new HueLightMessage(targetResource, options);
+					break;
+				case "group":
+					// GET MESSAGE
+					message = new HueGroupMessage(targetResource, { resources: this.resources, ...options});
+					break;
+				case "button":
+					message = new HueButtonsMessage(targetResource, options);
+					break;
+				case "motion":
+					message = new HueMotionMessage(targetResource, options);
+					break;
+				case "temperature":
+					message = new HueTemperatureMessage(targetResource, options);
+					break;
+				case "light_level":
+					message = new HueBrightnessMessage(targetResource, options);
+					break;
+				case "rule":
+					message = new HueRulesMessage(targetResource, options);
+					break;
+				default:
+					return false;
+			}
+
+			// GET & SAVE LAST STATE AND DIFFERENCES
+			const currentState = message.msg;
+			this.lastStates[`${type}${targetId}`] = { ...currentState };
+			currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
+			currentState.lastState = lastState;
+			return currentState;
+		} else {
+			// GET RESOURCES BY TYPE
+			let allFilteredResources = {};
+
+			for (const [rootID, resource] of Object.entries(scope.resources))
+			{
+				const isGroup = (resource["type"] == "room" || resource["type"] == "zone" || resource["type"] == "bridge_home");
+
+				// NORMAL DEVICES
+				if(!isGroup && resource["services"] && resource["services"][type])
+				{
+					for (const [serviceID, targetDevice] of Object.entries(resource["services"][type]))
+					{
+						allFilteredResources[rootID] = scope.get(type, rootID);
+					}
+				}
+				// GROUPED RESOURCES
+				else if(isGroup && type === "group")
+				{
+					allFilteredResources[rootID] = scope.get(type, rootID);
+				}
+			}
+
+			return Object.values(allFilteredResources);
+		}
+	}
 }
 
 module.exports = function(RED) {
@@ -311,148 +380,6 @@ module.exports = function(RED) {
 		// PUSH UPDATED STATE
 
 		// GET RESOURCE (FROM NODES)
-		this.get = function(type, id = false, options = {})
-		{
-			// GET SPECIFIC RESOURCE
-			if(id)
-			{
-				// RESOURCE EXISTS? -> PROCEED
-				if(scope.resources[id])
-				{
-					// RESOLVE LINKS
-					const targetResource = scope.resources[id];
-					const lastState = scope.lastStates[type+targetResource.id] ? Object.assign({}, scope.lastStates[type+targetResource.id]) : false;
-
-					if(type == "bridge")
-					{
-						const message = new HueBridgeMessage(targetResource, options);
-
-						// GET CURRENT STATE MESSAGE
-						let currentState = message.msg;
-						return currentState;
-					}
-					else if(type == "light")
-					{
-						const message = new HueLightMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "group")
-					{
-						// GET MESSAGE
-						const message = new HueGroupMessage(targetResource, { resources: scope.resources, ...options});
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "button")
-					{
-						const message = new HueButtonsMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "motion")
-					{
-						const message = new HueMotionMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "temperature")
-					{
-						const message = new HueTemperatureMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "light_level")
-					{
-						const message = new HueBrightnessMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else if(type == "rule")
-					{
-						const message = new HueRulesMessage(targetResource, options);
-
-						// GET & SAVE LAST STATE AND DIFFERENCES
-						let currentState = message.msg;
-						scope.lastStates[type+targetResource.id] = Object.assign({}, currentState);
-						currentState.updated = (lastState === false) ? {} : diff(lastState, currentState);
-						currentState.lastState = lastState;
-
-						return currentState;
-					}
-					else
-					{
-						return false;
-					}
-				}
-				else
-				{
-					return false;
-				}
-			}
-			else
-			{
-				// FILTER RESOURCES BY TYPE
-				let allFilteredResources = {};
-
-				for (const [rootID, resource] of Object.entries(scope.resources))
-				{
-					const isGroup = (resource["type"] == "room" || resource["type"] == "zone" || resource["type"] == "bridge_home");
-
-					// NORMAL DEVICES
-					if(!isGroup && resource["services"] && resource["services"][type])
-					{
-						for (const [serviceID, targetDevice] of Object.entries(resource["services"][type]))
-						{
-							allFilteredResources[rootID] = scope.get(type, rootID);
-						}
-					}
-					// GROUPED RESOURCES
-					else if(isGroup && type === "group")
-					{
-						allFilteredResources[rootID] = scope.get(type, rootID);
-					}
-				}
-
-				return Object.values(allFilteredResources);
-			}
-		}
 
 		// PATCH RESOURCE (FROM NODES)
 		this.patch = function(type, id, patch, version = 2)
