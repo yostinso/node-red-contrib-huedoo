@@ -1,13 +1,13 @@
-import { BridgeConfig } from "./api";
+import { RealResource, ResourceRef } from "../resources/generic";
+import { ApiRequestV1, ApiResponseV1, BridgeConfig } from "./api";
 
-export type RulesRequestArgs = {
-	method?: "GET";
+export interface RulesRequest extends ApiRequestV1<undefined> {
+	method: "GET";
 	config: BridgeConfig;
 	data?: undefined;
-	resource: "/rules";
 	version: 1;
 }
-export type RulesV1ResponseItem = {
+export interface RulesV1ResponseItem {
     name: string;
     lasttriggered: string;
     creationtime: string;
@@ -25,6 +25,10 @@ export type RulesV1ResponseItem = {
         body: object
     }[]
 };
-export type RulesV1Response = {
+export interface RulesV1Response extends ApiResponseV1 {
     [ index: string ]: RulesV1ResponseItem
 };
+
+export interface Rule extends RealResource<"rule">, Omit<RulesV1ResponseItem, "owner"> {
+    _owner: string; // This is not a ResourceRef
+}

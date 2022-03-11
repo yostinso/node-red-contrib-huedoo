@@ -1,50 +1,53 @@
 import axios, { AxiosRequestConfig } from "axios";
-import dayjs from 'dayjs';
 import https from 'https';
 import EventSource from 'eventsource';
-import { BasicResourceUnion, BasicServiceResource, BasicResource, ResourceList } from "./resource-types";
-import { TypedBridgeV1Response, TypedRulesV1ResponseItem } from "./messages";
-import { ResourceId } from "./resource-types/generic";
+import { RealResource, RealResourceType, ResourceId } from "./types/resources/generic";
+import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response } from "./types/api/bridge";
+import { RulesRequest, RulesV1Response } from "./types/api/rules";
+import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
+import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId, InitArgs } from "./types/api/api";
+import { EventUpdateResponse } from "./types/api/event";
+import { ExpandedResource } from "./types/expanded/resource";
 
-function expandResourceLinks(resource: AnyResource, allResources: { [id: string]: AnyResource }): ExpandedResource {
-	// We either have an owner _OR_ we have services
-	if (resource.type == "device" || resource.type == "room" || resource.type == "zone" || resource.type == "bridge_home") {
-		// RESOLVE SERVICES
-		let allServices: {
-			[ targetType: string ]: { [targetId: ResourceId ]: ExpandedResource }
-		} = {};
+export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> };
+export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
 
-		resource.services.forEach((service: ResourceRef) => {
-			// Find the full-size service in allResources
-			const fullResource = expandResourceLinks(allResources[service.rid], allResources); // I think unnecessary because no nesting?
-			if (!allServices[service.rtype]) { allServices[service.rtype] = {}; }
-			allServices[service.rtype][service.rid] = fullResource;
-		});
-
-		// REPLACE SERVICES
-		let completeResource: ExpandedBasicServiceResource = {
-			...resource,
-			services: allServices
-		}
-		return completeResource;
-	} else if ("owner" in resource && resource.owner) {
-		let ownerRid = resource.owner.rid;
-		return expandResourceLinks(allResources[ownerRid], allResources);
-	} else {
-		// No need for lookup/expansion; just clone
-		if ("services" in resource) {
-			throw new Error(`Unexpected 'services' key in non-group resource ${resource.type}`);
-		} else if ("owner" in resource) {
-			throw new Error(`Unexpected 'owner' key in non-group resource ${resource.type}`);
-		} else {
-			// I didn't bother to make a type "BasicResrouceWithoutRefs"...
-			return { ...resource } as unknown as ExpandedResource;
-		}
+function makeAxiosRequestV1<R extends ApiResponseV1, D extends ApiRequestV1<any>>(req: D, endpoint?: string): Promise<R> {
+	let url = `https://${req.config.bridge}`;
+	if (endpoint !== undefined) {
+		url += "/" + endpoint;
 	}
+	let axiosRequest: AxiosRequestConfig = {
+		method: req.method,
+		url,
+		headers: { "Content-Type": "application/json; charset=utf-8" },
+		httpsAgent: new https.Agent({ rejectUnauthorized: false }), // Node is somehow not able to parse the official Philips Hue PEM
+		data: req.data,
+	};
+	return axios.request<D, R>(axiosRequest);
 }
 
-export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource };
-export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
+function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequestV2<D>, endpoint: string): Promise<T> {
+	let url = `https://${request.config.bridge}/clip/v2/${endpoint}`;
+	let data = request.method.toUpperCase() != "GET" ? request.data : undefined;
+
+	let axiosRequest: AxiosRequestConfig = {
+		method: request.method,
+		url,
+		data,
+		headers: {
+			"Content-Type": "application/json; charset=utf-8",
+			"hue-application-key": request.config.key
+		},
+		httpsAgent: new https.Agent({ rejectUnauthorized: false }), // Node is somehow not able to parse the official Philips Hue PEM
+	};
+	return axios.request<D, ApiResponseV2<T>>(axiosRequest).then((response) => {
+		if (response.errors) {
+			throw new Error(`Error from Hue API: ${response.errors.join(", ")}`);
+		}
+		return response.data;
+	});
+}
 
 class API {
 	// EVENTS
@@ -80,76 +83,29 @@ class API {
 
 	//
 	// MAKE A REQUEST
-	static request(opts: BridgeAutoupdateArgs): Promise<BridgeV1Response>;
-	static request(opts: RulesRequestArgs): Promise<RulesV1Response>;
-	static request(opts: BridgeRequestArgs): Promise<BridgeV1Response>;
-	static request(opts: AllResourcesRequestArgs): Promise<AllResourcesResponse>;
-	static request(opts: ResourceRequestArgs): Promise<BasicResourceUnion>;
-	static request({ config = null, method = 'GET', resource = null, data = null, version = 2 }: RequestArgs): Promise<RequestResponse> {
-		return new Promise((resolve, reject) => {
-			if(!config) {
-				reject("Bridge is not configured!");
-				return false;
-			}
-
-			// BUILD REQUEST OBJECT
-			let request: AxiosRequestConfig = {
-				"method": method,
-				"url": "https://" + config.bridge,
-				"headers": {
-					"Content-Type": "application/json; charset=utf-8",
-					"hue-application-key": config.key
-				},
-				"httpsAgent": new https.Agent({ rejectUnauthorized: false }), // Node is somehow not able to parse the official Philips Hue PEM
-			};
-
-			// HAS RESOURCE? -> APPEND
-			if(resource !== null) {
-				let resourceKey: string = resource;
-				switch (version) {
-					case 1:
-						request['url'] += "/api/" + config.key + resource;
-						break;
-					case 2:
-						resourceKey = (resource !== "all") ? `/${resource}` : "";
-						request['url'] += "/clip/v2/resource" + resourceKey;
-						break;
-					default:
-						reject(`Invalid version ${version} passed to API.request`);
-						return false;
-				}
-			}
-
-			// HAS DATA? -> INSERT
-			if(data !== null) { request.data = data; }
-
-			// RUN REQUEST
-			axios(request).then((response) => {
-				if (version === 2) {
-					if (response.data.errors.length > 0) {
-						reject(response.data.errors);
-					} else {
-						resolve(response.data.data);
-					}
-				} else if (version === 1) {
-					if (resource === "/rules") {
-						resolve(response.data as RulesV1Response);
-					} else if (resource === "/config") {
-						resolve(response.data as BridgeV1Response);
-					} else {
-						resolve(response.data);
-					}
-				}
-			})
-			.catch(function(error) {
-				reject(error);
-			});
-		});
+	static rules(request: RulesRequest): Promise<RulesV1Response> {
+		return makeAxiosRequestV1(request, `/api/${request.config.key}/rules`);
+	}
+	static config(request: BridgeRequest): Promise<BridgeV1Response> {
+		return makeAxiosRequestV1(request, `/api/${request.config.key}/config`);
+	}
+	static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
+		return makeAxiosRequestV1(request, `/api/${request.config.key}/config`)
+	}
+	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]> {
+		return makeAxiosRequestV2(request, "resource");
+	}
+	static getResources<T extends RealResourceType>(request: ResourcesRequest<T>): Promise<ResourceResponse<T>[]> {
+		let endpoint = `resource/${request.resource}/${request.data}`;
+		return makeAxiosRequestV2(request, endpoint);
+	}
+	static getResource<R extends RealResourceType, T extends ResourceRequest<R>>(request: T): Promise<ResourceResponse<R>> {
+		let endpoint = `resource/${request.resource}/${request.data}`;
+		return makeAxiosRequestV2(request, endpoint);
 	}
 
-	//
 	// SUBSCRIBE TO BRIDGE EVENTS
-	static subscribe(config: ConfigWithId, callback: (data: EventData[]) => void) {
+	static subscribe(config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void) {
 		return new Promise((resolve, reject) => {
 			if(!this.events[config.id]) {
 				var sseURL = "https://" + config.bridge + "/eventstream/clip/v2";
@@ -163,8 +119,8 @@ class API {
 				// PIPE MESSAGE TO TARGET FUNCTION
 				this.events[config.id].onmessage = (event) => {
 					if(event && event.type === 'message' && event.data) {
-						const messages: EventUpdate[] = JSON.parse(event.data);
-						messages.forEach((msg: EventUpdate) => {
+						const messages: EventUpdateResponse<any>[] = JSON.parse(event.data);
+						messages.forEach((msg: EventUpdateResponse<any>) => {
 							if (msg.type === "update") {
 								callback(msg.data);
 							}
@@ -190,68 +146,9 @@ class API {
 
 	//
 	// UNSUBSCRIBE
-	static unsubscribe(config: ConfigWithId) {
+	static unsubscribe(config: BridgeConfigWithId) {
 		if (this.events[config.id] instanceof EventSource) { this.events[config.id].close(); }
 		delete this.events[config.id];
-	}
-
-	//
-	// GET FULL/ROOT RESOURCE
-
-	//
-	// PROCESS RESOURCES
-	static processResources(resources: AnyResource[]): Promise<[ProcessedResources, GroupsOfResources]> {
-		// SET CURRENT DATE/TIME
-		const currentDateTime = dayjs().format();
-
-		// ACTION!
-		return new Promise((resolve, reject) => {
-			let resourceList: { [id: ResourceId]: AnyResource } = {};
-			let processedResources: ProcessedResources = {};
-			let groupsOf: GroupsOfResources = {};
-
-			// CREATE ID BASED OBJECT OF ALL RESOURCES
-			resources.reduce((memo: { [id: ResourceId]: AnyResource }, resource) => {
-				if(resource.type !== "button") {
-					memo[resource.id] = resource;
-				}
-				return memo;
-			}, {});
-
-			// GET FULL RESOURCES OF EACH OBJECT
-			resources.forEach((resource) => {
-				// GET FULL RESOURCE
-				let fullResource = expandResourceLinks(resource, resourceList);
-
-				// ADD CURRENT DATE/TIME
-				fullResource.updated = currentDateTime;
-
-				// ALL ALL TYPES BEHIND RESOURCE
-				fullResource.types = [ fullResource.type ];
-
-				// RESOURCE HAS SERVICES?
-				if ("services" in fullResource) {
-					let additionalServiceTypes = Object.keys(fullResource["services"]) as ResourceType[];
-
-					// SET ADDITIONAL TYPES BEHIND RECCOURCE
-					fullResource.types = [ ...fullResource.types, ...additionalServiceTypes ];
-				}
-
-				// RESOURCE HAS GROUPED SERVICES?
-				if ("grouped_services" in fullResource && fullResource.grouped_services) {
-					fullResource.grouped_services.forEach((groupedService) => {
-						const groupedServiceID = groupedService.rid;
-						if (!groupsOf[groupedServiceID]) { groupsOf[groupedServiceID] = []; }
-						groupsOf[groupedServiceID].push(fullResource.id);
-					});
-				}
-
-				// GIVE FULL RESOURCE BACK TO COLLECTION
-				processedResources[fullResource.id] = fullResource;
-			});
-
-			resolve([ processedResources, groupsOf ]);
-		});
 	}
 }
 

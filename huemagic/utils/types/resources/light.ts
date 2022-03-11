@@ -1,8 +1,7 @@
-import { ColorSettings } from "./color";
-import { GenericBasicResource, ResourceRef } from "./generic";
+import { ColorSettings } from "../color";
+import { RealResource, ResourceRef } from "./generic";
 
-export interface Light extends GenericBasicResource, ColorSettings {
-    type: "light"
+export interface Light extends RealResource<"light">, ColorSettings {
     dynamics?: {
         speed: number;
         status: "dynamic_palette" | "none";

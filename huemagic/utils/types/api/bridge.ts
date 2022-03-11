@@ -1,13 +1,28 @@
-import { BridgeConfig } from "./api";
+import { RealResource } from "../resources/generic";
+import { BridgeConfig, ApiResponseV1, ApiRequestV1 } from "./api";
 
-export type BridgeRequestArgs = {
-	method?: "GET";
+export interface BridgeRequest extends ApiRequestV1<undefined> {
+	method: "GET";
 	config: BridgeConfig;
 	data?: undefined;
-	resource: "/config";
 	version: 1;
 }
-export type BridgeV1Response = {
+
+type BridgeUpdate = {
+	swupdate2: {
+		checkforupdate: boolean;
+		install: boolean;
+	}
+}
+
+export interface BridgeAutoupdateRequest extends ApiRequestV1<BridgeUpdate> {
+	config: BridgeConfig;
+	version: 1;
+	method: "PUT";
+	data: BridgeUpdate
+}
+
+export interface BridgeV1Response extends ApiResponseV1 {
     name: string;
 	bridgeid: string;
 	factorynew: boolean;
@@ -41,15 +56,7 @@ export type BridgeV1Response = {
 		}
 	}
 };
-export type BridgeAutoupdateArgs = {
-	config: BridgeConfig;
-	resource: "/config";
-	version: 1;
-	method: "PUT";
-	data: {
-		swupdate2: {
-			checkforupdate: boolean;
-			install: boolean;
-		}
-	}
+
+export interface Bridge extends RealResource<"bridge">, Omit<BridgeV1Response, "bridgeid"> {
+	
 }

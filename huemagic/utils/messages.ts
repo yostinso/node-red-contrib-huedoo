@@ -3,6 +3,7 @@ const colorUtils = require("./color");
 import * as NodeRed from "node-red";
 import { BridgeV1Response, RulesV1ResponseItem } from "./api";
 import { Light } from "./resource-types";
+import { RealResource } from "./types/resources/generic";
 
 interface Message {
     payload: any;
@@ -51,12 +52,6 @@ interface HueBridgeMessageContents extends Message {
 
 //
 // HUE BRIDGE
-export type TypedBridgeV1Response = BridgeV1Response & {
-	type: "bridge";
-	id: string;
-	id_v1: string;
-	types?: string[];
-}
 
 class HueBridgeMessage {
     private readonly message: HueBridgeMessageContents;

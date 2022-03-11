@@ -1,30 +1,21 @@
+import axios from "axios";
+import dayjs from "dayjs";
+import { diff } from "deep-object-diff";
 import EventEmitter from "events";
+import fastq from "fastq";
+import https from "https";
 import * as NodeRed from "node-red";
-
-import API, { AnyResource, AnyResponse, ExpandedResource, ProcessedResources, RulesRequestArgs } from './utils/api';
-import merge from "./utils/merge";
-
-const events = require('events');
-const dayjs = require('dayjs');
-const diff = require("deep-object-diff").diff;
-const axios = require('axios');
-const https = require('https');
-const fastq = require('fastq');
-
+import API, { ProcessedResources } from './utils/api';
+import { isDiff, mergeDeep } from "./utils/merge";
 import {
-	HueBridgeMessage,
-	HueLightMessage,
-	HueGroupMessage,
-	HueMotionMessage,
-	HueTemperatureMessage,
-	HueBrightnessMessage,
-	HueButtonsMessage,
-	HueRulesMessage,
-	TypedRulesV1ResponseItem,
-	TypedBridgeV1Response,
+	HueBridgeMessage, HueBrightnessMessage,
+	HueButtonsMessage, HueGroupMessage, HueLightMessage, HueMotionMessage, HueRulesMessage, HueTemperatureMessage
 } from "./utils/messages";
-import { BasicResourceUnion, Light, ResourceId, ResourceType } from "./utils/resource-types";
-import { BridgeV1Response, RulesV1Response } from "./utils/api";
+import { Bridge } from "./utils/types/api/bridge";
+import { Resource, ResourceResponse } from "./utils/types/api/resource";
+import { Rule } from "./utils/types/api/rules";
+import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResourceResponse } from "./utils/types/expanded/resource";
+import { isOwnedResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ServiceOwnerResourceType } from "./utils/types/resources/generic";
 
 interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
@@ -38,8 +29,7 @@ class HueBridge {
     private readonly config: HueBridgeDef;
 	private nodeActive: boolean = true;
 	private resources: ProcessedResources = {};
-	private groupsOfResources: { [ groupedServiceId: ResourceId ]: string[] } = {};
-	private resourcesInGroups: object = {};
+	private groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
 	private lastStates: object = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
@@ -64,7 +54,7 @@ class HueBridge {
 		})
 		.then((allResources) => {
 			this.node.log("Processing bridge resources…");
-			return API.processResources(allResources);
+			return expandedResources(allResources);
 		})
 		.then(([ allResources, groupsOfResources ]) => {
 			// SAVE CURRENT RESOURCES
@@ -90,41 +80,43 @@ class HueBridge {
 		});
 	}
 
-	getAllResources(): Promise<AnyResource[]> {
+	getAllResources(): Promise<RealResource<any>[]> {
 		return new Promise((resolve, reject) => {
-			let allResources: AnyResource[] = [];
+			let allResources: RealResource<any>[] = [];
 
 			// GET BRIDGE INFORMATION
-			this.getBridgeInformation().then((bridgeInformation) => {
-				// PUSH TO RESOURCES
-				allResources.push({
-					...bridgeInformation,
-					type: "bridge",
-					id: bridgeInformation.bridgeid,
-					id_v1: "/config"
-				});
-
+			this.getBridgeInformation().then((bridge) => {
+				// INITIALIZE RESOURCES LIST
+				allResources.push(bridge);
 				// CONTINUE WITH ALL RESOURCES
-				return API.request({ config: this.config, resource: "all" });
+				return API.getAllResources({
+					version: 2,
+					method: "GET",
+					config: this.config,
+				});
 			}).then((v2Resources) => {
-				// MERGE RESOURCES
+				// MERGE devices/lights/etc TO RESOURCES
 				allResources.push(...v2Resources);
 
 				// GET RULES (LEGACY API)
-				return API.request({ config: this.config, resource: "/rules", version: 1 });
-			}).then((rules) => {
-				allResources.push(
-					...Object.entries(rules).map(([ id, rule ]) => {
-						let newRule: TypedRulesV1ResponseItem = {
-							...rule,
-							_owner: rule.owner,
-							id: `rule_${id}`,
-							id_v1: `/rules/${id}`,
-							type: "rule",
-						}
-						return newRule;
-					})
-				);
+				return API.rules({
+					version: 1,
+					method: "GET",
+					config: this.config,
+				});
+			}).then((rulesResponse) => {
+				// MERGE rules TO RESOURCES
+				let rules = Object.entries(rulesResponse).map(([id, rule]) => {
+					let newRule: Rule = {
+						...rule,
+						_owner: rule.owner,
+						id: `rule_${id}`,
+						id_v1: `/rules/${id}`,
+						type: "rule",
+					};
+					return newRule;
+				})
+				allResources.push(...rules);
 
 				resolve(allResources);
 			})
@@ -132,26 +124,24 @@ class HueBridge {
 		});
 	}
 
-	getBridgeInformation(replaceResources = false): Promise<TypedBridgeV1Response> {
+	getBridgeInformation(replaceResources = false): Promise<Bridge> {
 		return new Promise((resolve, reject) => {
-			API.request({ config: this.config, resource: "/config", version: 1 })
-			.then((bridgeInformation) => {
-				// PREPARE TO MATCH V2 RESOURCES
-				 const typedBridge: TypedBridgeV1Response = {
+			API.config({
+				config: this.config,
+				method: "GET",
+				version: 1,
+			}).then((bridgeInformation) => {
+				const b: Bridge = {
 					...bridgeInformation,
 					type: "bridge",
 					id: "bridge",
 					id_v1: "/config",
 					updated: dayjs().format(),
-				 }
-
-				// ALSO REPLACE CURRENT RESOURCE?
-				if(replaceResources === true) {
-					this.resources[typedBridge.id] = typedBridge;
 				}
-
-				// GIVE BACK
-				resolve(typedBridge);
+				if (replaceResources) {
+					this.resources[b.id] = b;
+				}
+				resolve(b);
 			}).catch((error) => reject(error));
 		});
 	}
@@ -181,63 +171,67 @@ class HueBridge {
 		}
 	}
 
+	private getCachedServices<T extends OwnedResource<OwnedResourceType>>(resource: T): ExpandedOwnedServices {
+		if (isOwnedResource(resource)) {
+			let r = resource as OwnedResource<OwnedResourceType>;
+			if (r.owner) {
+				let cachedOwner: ExpandedServiceOwnerResourceResponse<ServiceOwnerResourceType> = this.resources[r.owner.rid];
+				if (cachedOwner.services) {
+					return cachedOwner.services;
+				}
+			}
+		}
+		return {};
+	}
+
+	private getPreviousResourceState<T extends RealResourceType>(resource: ExpandedResource<T>): ExpandedResource<T> | undefined {
+		let previousState: ExpandedResource<T> | undefined = undefined;
+		let ownerServices = this.getCachedServices(resource);
+		if (ownerServices[resource.type]?.[resource.id] !== undefined) {
+			previousState = ownerServices![resource.type]![resource.id];
+			if ((resource as OwnedResource<OwnedResourceType>).type == "button" && ownerServices.button !== undefined) {
+				// IS BUTTON? -> REMOVE PREVIOUS STATES
+				for (let key in ownerServices.button) {
+					delete ownerServices.button[key]
+				}
+			}
+		} else if (this.resources[resource.id]) {
+			previousState = this.resources[resource.id] as ExpandedResource<T>;
+		}
+		return previousState;
+	}
+
 	refreshStatesSSE() {
 		this.node.log("Subscribing to bridge events…");
 		API.subscribe(this.config, (updates) => {
 			const currentDateTime = dayjs().format();
 
-
-			updates.forEach((resource) => {
-				let { id, type } = resource;
-
-				let previousState: ExpandedResource | false = false;
-
-				// HAS OWNER?
-				if (resource.owner) {
-					let targetId = resource.owner.rid;
-
-					if (this.resources[targetId]) {
-						// GET PREVIOUS STATE
-						previousState = this.resources[targetId]["services"][type][id];
-
-						// IS BUTTON? -> REMOVE PREVIOUS STATES
-						if(type === "button") {
-							Object.keys(this.resources[targetId]["services"]["button"]).forEach((oneButtonID) => {
-								delete this.resources[targetId]["services"]["button"][oneButtonID]["button"];
-							});
-						}
-					}
-				} else if (this.resources[id]) {
-					// GET PREVIOUS STATE
-					previousState = this.resources[id];
-				}
-
+			updates.forEach((event) => {
+				let resource: ResourceResponse<RealResourceType> = event.data;
+				let previousState = this.getPreviousResourceState(resource);
 				// NO PREVIOUS STATE?
-				if (previousState) { return false; }
+				if (previousState === undefined) { return false; }
 
 				// CHECK DIFFERENCES
-				const mergedState = merge.deep(previousState, resource);
-				const updatedResources = diff(previousState, mergedState);
+				const mergedState = mergeDeep(previousState, resource);
 
-				if(Object.values(updatedResources).length > 0)
-				{
-					if(resource["owner"])
-					{
-						let targetId = resource["owner"]["rid"];
-
-						this.resources[targetId]["services"][type][id] = mergedState;
-						this.resources[targetId]["updated"] = currentDateTime;
-
-						// PUSH STATE
-						this.pushUpdatedState(this.resources[targetId], resource.type);
-					}
-					else
-					{
-						this.resources[id] = mergedState;
-						this.resources[id]["updated"] = currentDateTime;
+				if (isDiff(previousState, mergedState)) {
+					if (isOwnedResource(resource)) {
+						let ownerServices = this.getCachedServices(resource);
+						if (ownerServices[resource.type] !== undefined) {
+							let ownedResources = (ownerServices[resource.type] || {});
+							(ownedResources[resource.id] as ExpandedResource<RealResourceType>) = mergedState;
+							this.resources[resource.id].updated = currentDateTime;
+						}
 
 						// PUSH STATE
-						this.pushUpdatedState(this.resources[id], resource.type);
+						this.pushUpdatedState(this.resources[resource.id], resource.type);
+					} else {
+						this.resources[resource.id] = mergedState;
+						this.resources[resource.id].updated = currentDateTime;
+
+						// PUSH STATE
+						this.pushUpdatedState(this.resources[resource.id], resource.type);
 					}
 				}
 			});
@@ -540,7 +534,7 @@ module.exports = function(RED) {
 	// DISCOVER HUE BRIDGES ON LOCAL NETWORK
 	RED.httpAdmin.get('/hue/bridges', async function(req, res, next)
 	{
-		axios({
+		axios.request({
 			"method": "GET",
 			"url": "https://discovery.meethue.com",
 			"headers": {
@@ -594,7 +588,7 @@ module.exports = function(RED) {
 		}
 		else
 		{
-			axios({
+			axios.request({
 				"method": "POST",
 				"url": "http://"+req.query.ip+"/api",
 				"httpsAgent": new https.Agent({ rejectUnauthorized: false }),
