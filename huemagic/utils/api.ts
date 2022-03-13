@@ -1,18 +1,24 @@
-import axios, { AxiosRequestConfig } from "axios";
+import axios, { AxiosRequestConfig, Method } from "axios";
 import https from 'https';
 import EventSource from 'eventsource';
 import { RealResource, RealResourceType, ResourceId } from "./types/resources/generic";
-import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response } from "./types/api/bridge";
+import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response, ConfigRequest, ConfigResponse } from "./types/api/bridge";
 import { RulesRequest, RulesV1Response } from "./types/api/rules";
 import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
-import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId, InitArgs } from "./types/api/api";
+import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId } from "./types/api/api";
 import { EventUpdateResponse } from "./types/api/event";
 import { ExpandedResource } from "./types/expanded/resource";
 
 export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> };
 export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
+interface ApiRequestV1WithMethod<D> extends ApiRequestV1<D> {
+	method: Method
+}
+interface ApiRequestV2WithMethod<D> extends ApiRequestV2<D> {
+	method: Method
+}
 
-function makeAxiosRequestV1<R extends ApiResponseV1, D extends ApiRequestV1<any>>(req: D, endpoint?: string): Promise<R> {
+function makeAxiosRequestV1<R extends ApiResponseV1, D extends ApiRequestV1WithMethod<any>>(req: D, endpoint?: string): Promise<R> {
 	let url = `https://${req.config.bridge}/api/${req.config.key}`;
 	if (endpoint !== undefined) {
 		url += "/" + endpoint;
@@ -27,7 +33,7 @@ function makeAxiosRequestV1<R extends ApiResponseV1, D extends ApiRequestV1<any>
 	return axios.request<D, R>(axiosRequest);
 }
 
-function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequestV2<D>, endpoint: string): Promise<T> {
+function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequestV2WithMethod<D>, endpoint: string): Promise<T> {
 	let url = `https://${request.config.bridge}/clip/v2/${endpoint}`;
 	let data = request.method.toUpperCase() != "GET" ? request.data : undefined;
 
@@ -58,56 +64,51 @@ class API {
 
 	//
 	// INITIALIZE
-	static init({ config = null }: InitArgs) {
+	static init(config: ConfigRequest): Promise<ConfigResponse> {
 		// GET BRIDGE
-		return new Promise(function(resolve, reject) {
-			if(!config) {
-				reject("Bridge is not configured!");
-				return false;
-			}
+		if (!config || typeof config.bridge !== "string" || config.bridge.length == 0) {
+			return Promise.reject("Bridge is not configured!");
+		}
 
-			// GET BRIDGE INFORMATION
-			axios({
-				"method": "GET",
-				"url": "https://" + config.bridge + "/api/config",
-				"headers": { "Content-Type": "application/json; charset=utf-8" },
-				"httpsAgent": new https.Agent({ rejectUnauthorized: false }),
-			})
-			.then(function(response) {
-				resolve(response.data);
-			})
-			.catch(function(error) {
-				reject(error);
-			});
-		});
+		// GET BRIDGE INFORMATION
+		return makeAxiosRequestV1<ConfigResponse, ApiRequestV1WithMethod<any>>(
+			{ config: { bridge: config.bridge, key: "config" }, method: "GET", },
+			undefined
+		);
 	}
 
 	//
 	// MAKE A REQUEST
 	static rules(request: RulesRequest): Promise<RulesV1Response> {
-		return makeAxiosRequestV1(request, `rules`);
+		const req = { ...request, method: "GET" } as const;
+		return makeAxiosRequestV1(req, `rules`);
 	}
 	static config(request: BridgeRequest): Promise<BridgeV1Response> {
-		return makeAxiosRequestV1(request, `config`);
+		const req = { ...request, method: "GET" } as const;
+		return makeAxiosRequestV1(req, `config`);
 	}
 	static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
-		return makeAxiosRequestV1(request, `config`)
+		const req = { ...request, method: "PUT" } as const;
+		return makeAxiosRequestV1(req, `config`)
 	}
 	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]> {
-		return makeAxiosRequestV2(request, "resource");
+		const req = { ...request, method: "GET" } as const;
+		return makeAxiosRequestV2(req, "resource");
 	}
 	static getResources<T extends RealResourceType>(request: ResourcesRequest<T>): Promise<ResourceResponse<T>[]> {
-		let endpoint = `resource/${request.resource}/${request.data}`;
-		return makeAxiosRequestV2(request, endpoint);
+		const req = { ...request, method: "GET" } as const;
+		let endpoint = `resource/${request.resource}`;
+		return makeAxiosRequestV2(req, endpoint);
 	}
 	static getResource<R extends RealResourceType, T extends ResourceRequest<R>>(request: T): Promise<ResourceResponse<R>> {
+		const req = { ...request, method: "GET" } as const;
 		let endpoint = `resource/${request.resource}/${request.data}`;
-		return makeAxiosRequestV2(request, endpoint);
+		return makeAxiosRequestV2(req, endpoint);
 	}
 
 	// SUBSCRIBE TO BRIDGE EVENTS
-	static subscribe(config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void) {
-		return new Promise((resolve, reject) => {
+	static subscribe(config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void): Promise<true> {
+		return new Promise((resolve) => {
 			if(!this.events[config.id]) {
 				var sseURL = "https://" + config.bridge + "/eventstream/clip/v2";
 
@@ -135,12 +136,11 @@ class API {
 				// ERROR? -> RETRY?
 				this.events[config.id].onerror = (error) => {
 					console.log("HueMagic:", "Connection to bridge lost. Trying to reconnect again in 30 seconds…", error);
-					setTimeout(() => this.subscribe(config, callback), 30000);
-					resolve(true);
+					setTimeout(() => resolve(this.subscribe(config, callback)), 30000);
 				}
 			} else {
 				this.unsubscribe(config);
-				this.subscribe(config, callback);
+				resolve(this.subscribe(config, callback));
 			}
 		});
 	}
@@ -148,7 +148,7 @@ class API {
 	//
 	// UNSUBSCRIBE
 	static unsubscribe(config: BridgeConfigWithId) {
-		if (this.events[config.id] instanceof EventSource) { this.events[config.id].close(); }
+		if (this.events[config.id]) { this.events[config.id].close(); }
 		delete this.events[config.id];
 	}
 }

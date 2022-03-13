@@ -1,11 +1,26 @@
 import { RealResource } from "../resources/generic";
 import { BridgeConfig, ApiResponseV1, ApiRequestV1 } from "./api";
 
+export interface ConfigRequest {
+	bridge: string;
+	key?: string;
+}
+export interface ConfigResponse extends ApiResponseV1 {
+  name: string,
+  datastoreversion: string,
+  swversion: string,
+  apiversion: string,
+  mac: string,
+  bridgeid: string,
+  factorynew: boolean,
+  replacesbridgeid: string | null,
+  modelid: string,
+  starterkitid: string
+}
+
 export interface BridgeRequest extends ApiRequestV1<undefined> {
-	method: "GET";
 	config: BridgeConfig;
 	data?: undefined;
-	version: 1;
 }
 
 type BridgeUpdate = {
@@ -17,8 +32,6 @@ type BridgeUpdate = {
 
 export interface BridgeAutoupdateRequest extends ApiRequestV1<BridgeUpdate> {
 	config: BridgeConfig;
-	version: 1;
-	method: "PUT";
 	data: BridgeUpdate
 }
 

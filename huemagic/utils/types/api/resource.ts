@@ -7,19 +7,15 @@ export interface Resource<T extends RealResourceType> {
 }
 
 export interface ResourceRequest<T extends RealResourceType> extends ApiRequestV2<ResourceId> {
-	method: "GET";
 	resource: T;
 	data: ResourceId;
 	config: BridgeConfig;
 }
 export interface ResourcesRequest<T extends RealResourceType> extends ApiRequestV2<ResourceId> {
-	method: "GET";
 	config: BridgeConfig;
 	resource: T;
-	data: ResourceId;
 }
 export interface AllResourcesRequest extends ApiRequestV2<undefined> {
-	method: "GET";
 	config: BridgeConfig;
 }
 

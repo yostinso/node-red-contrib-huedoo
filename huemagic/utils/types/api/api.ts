@@ -8,19 +8,15 @@ export interface BridgeConfigWithId extends BridgeConfig {
 	id: string;
 }
 
-export type InitArgs = { config: BridgeConfig | null }
-
-export interface ApiRequest<D, V = 1|2> {
+export interface ApiRequest<D> {
 	config: BridgeConfig;
-	method: Method;
-	version: V;
 	data?: D;
 }
 
-export interface ApiRequestV1<D> extends ApiRequest<D, 1> {
+export interface ApiRequestV1<D> extends ApiRequest<D> {
 	
 }
-export interface ApiRequestV2<D> extends ApiRequest<D, 2> {
+export interface ApiRequestV2<D> extends ApiRequest<D> {
 	
 }
 

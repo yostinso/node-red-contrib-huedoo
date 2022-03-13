@@ -2,10 +2,8 @@ import { RealResource, ResourceRef } from "../resources/generic";
 import { ApiRequestV1, ApiResponseV1, BridgeConfig } from "./api";
 
 export interface RulesRequest extends ApiRequestV1<undefined> {
-	method: "GET";
 	config: BridgeConfig;
 	data?: undefined;
-	version: 1;
 }
 export interface RulesV1ResponseItem {
     name: string;
