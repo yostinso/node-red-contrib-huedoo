@@ -13,7 +13,7 @@ export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealReso
 export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
 
 function makeAxiosRequestV1<R extends ApiResponseV1, D extends ApiRequestV1<any>>(req: D, endpoint?: string): Promise<R> {
-	let url = `https://${req.config.bridge}`;
+	let url = `https://${req.config.bridge}/api/${req.config.key}`;
 	if (endpoint !== undefined) {
 		url += "/" + endpoint;
 	}
@@ -43,6 +43,7 @@ function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequ
 	};
 	return axios.request<D, ApiResponseV2<T>>(axiosRequest).then((response) => {
 		if (response.errors) {
+			//return Promise.reject(`Error from Hue API: ${response.errors.join(", ")}`);
 			throw new Error(`Error from Hue API: ${response.errors.join(", ")}`);
 		}
 		return response.data;
@@ -84,13 +85,13 @@ class API {
 	//
 	// MAKE A REQUEST
 	static rules(request: RulesRequest): Promise<RulesV1Response> {
-		return makeAxiosRequestV1(request, `/api/${request.config.key}/rules`);
+		return makeAxiosRequestV1(request, `rules`);
 	}
 	static config(request: BridgeRequest): Promise<BridgeV1Response> {
-		return makeAxiosRequestV1(request, `/api/${request.config.key}/config`);
+		return makeAxiosRequestV1(request, `config`);
 	}
 	static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
-		return makeAxiosRequestV1(request, `/api/${request.config.key}/config`)
+		return makeAxiosRequestV1(request, `config`)
 	}
 	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]> {
 		return makeAxiosRequestV2(request, "resource");
@@ -154,3 +155,4 @@ class API {
 
 // EXPORT
 export default API;
+export { makeAxiosRequestV2 }; // for testing

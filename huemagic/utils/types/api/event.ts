@@ -1,4 +1,3 @@
-import { RealResource } from "../resources/generic";
 import { ResourceResponse } from "./resource";
 
 type UpdateId = string;

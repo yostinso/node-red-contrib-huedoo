@@ -5,6 +5,7 @@ import EventEmitter from "events";
 import fastq from "fastq";
 import https from "https";
 import * as NodeRed from "node-red";
+import { version } from "os";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
 import {
@@ -242,26 +243,25 @@ class HueBridge {
 		if (this.config.autoupdates === true || this.config.autoupdates === undefined) {
 			if (this.firmwareUpdateTimeout !== undefined) { clearTimeout(this.firmwareUpdateTimeout); }
 
-			API.request({
+			API.setBridgeUpdate({
 				config: this.config,
-				method: "PUT",
-				resource: "/config",
 				version: 1,
+				method: "PUT",
 				data: {
 					swupdate2: {
 						checkforupdate: true,
 						install: true
 					}
 				}
-			})
-			.then((status) => {
-				if(this.nodeActive == true) {
+			}).then((status) => {
+				// SUCCESS // TRY AGAIN IN 12H
+				if (this.nodeActive) {
 					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			})
 			.catch((error) => {
 				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
-				if(this.nodeActive == true) {
+				if (this.nodeActive) {
 					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			});
