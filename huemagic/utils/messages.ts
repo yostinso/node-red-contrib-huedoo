@@ -1,8 +1,7 @@
 const dayjs = require('dayjs');
 const colorUtils = require("./color");
 import * as NodeRed from "node-red";
-import { BridgeV1Response, RulesV1ResponseItem } from "./api";
-import { Light } from "./resource-types";
+import { BridgeV1Response } from "./types/api/bridge";
 import { RealResource } from "./types/resources/generic";
 
 interface Message {
@@ -56,7 +55,7 @@ interface HueBridgeMessageContents extends Message {
 class HueBridgeMessage {
     private readonly message: HueBridgeMessageContents;
 
-	constructor(resource: TypedBridgeV1Response, options: { autoupdate?: boolean } = {})
+	constructor(resource: BridgeV1Response, options: { autoupdate?: boolean } = {})
 	{
         this.message = {
             payload: {

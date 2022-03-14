@@ -1,15 +1,15 @@
 import axios, { AxiosRequestConfig, Method } from "axios";
 import https from 'https';
 import EventSource from 'eventsource';
-import { RealResource, RealResourceType, ResourceId } from "./types/resources/generic";
+import { RealResource, RealResourceType, ResourceId, SpecialResource, SpecialResourceType } from "./types/resources/generic";
 import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response, ConfigRequest, ConfigResponse } from "./types/api/bridge";
 import { RulesRequest, RulesV1Response } from "./types/api/rules";
-import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
+import { AllResourcesRequest, Resource, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
 import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId } from "./types/api/api";
 import { EventUpdateResponse } from "./types/api/event";
 import { ExpandedResource } from "./types/expanded/resource";
 
-export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> };
+export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType> };
 export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
 interface ApiRequestV1WithMethod<D> extends ApiRequestV1<D> {
 	method: Method

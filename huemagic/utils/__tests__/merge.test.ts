@@ -1,4 +1,4 @@
-import { mergeDeep, isDiff } from "../utils/merge";
+import { mergeDeep, isDiff } from "../merge";
 
 describe(mergeDeep, () => {
     it("should merge two shallow objects", () => {

@@ -1,5 +1,3 @@
-//import { expect } from "chai";
-
 const axiosRequestMock = jest.fn();
 jest.mock("axios", () => {
     return {
@@ -11,7 +9,7 @@ const eventSourceConstructor = jest.fn();
 jest.mock("eventsource", () => eventSourceConstructor);
 
 
-import API, { makeAxiosRequestV2 } from "../utils/api";
+import API, { makeAxiosRequestV2 } from "../api";
 
 const BRIDGE = "bridge-" + Math.random();
 const BRIDGE_KEY = "key-" + Math.random();

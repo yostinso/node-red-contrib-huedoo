@@ -5,7 +5,6 @@ import EventEmitter from "events";
 import fastq from "fastq";
 import https from "https";
 import * as NodeRed from "node-red";
-import { version } from "os";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
 import {
@@ -15,10 +14,10 @@ import {
 import { Bridge } from "./utils/types/api/bridge";
 import { Resource, ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
-import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResourceResponse } from "./utils/types/expanded/resource";
-import { isOwnedResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ServiceOwnerResourceType } from "./utils/types/resources/generic";
+import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
+import { isOwnedResource, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
 
-interface HueBridgeDef extends NodeRed.NodeDef {
+export interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
 	disableupdates?: boolean;
 	bridge: string;
@@ -31,7 +30,7 @@ class HueBridge {
 	private nodeActive: boolean = true;
 	private resources: ProcessedResources = {};
 	private groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
-	private lastStates: object = {};
+	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
 	private firmwareUpdateTimeout?: NodeJS.Timeout;
@@ -48,7 +47,7 @@ class HueBridge {
 
 	start() {
 		this.node.log("Initializing the bridge (" + this.config.bridge + ")…");
-		API.init({ config: this.config })
+		API.init(this.config)
 		.then(() => {
 			this.node.log("Connected to bridge");
 			return this.getAllResources();
@@ -91,8 +90,6 @@ class HueBridge {
 				allResources.push(bridge);
 				// CONTINUE WITH ALL RESOURCES
 				return API.getAllResources({
-					version: 2,
-					method: "GET",
 					config: this.config,
 				});
 			}).then((v2Resources) => {
@@ -101,8 +98,6 @@ class HueBridge {
 
 				// GET RULES (LEGACY API)
 				return API.rules({
-					version: 1,
-					method: "GET",
 					config: this.config,
 				});
 			}).then((rulesResponse) => {
@@ -129,8 +124,6 @@ class HueBridge {
 		return new Promise((resolve, reject) => {
 			API.config({
 				config: this.config,
-				method: "GET",
-				version: 1,
 			}).then((bridgeInformation) => {
 				const b: Bridge = {
 					...bridgeInformation,
@@ -176,7 +169,7 @@ class HueBridge {
 		if (isOwnedResource(resource)) {
 			let r = resource as OwnedResource<OwnedResourceType>;
 			if (r.owner) {
-				let cachedOwner: ExpandedServiceOwnerResourceResponse<ServiceOwnerResourceType> = this.resources[r.owner.rid];
+				let cachedOwner: ExpandedServiceOwnerResource<ServiceOwnerResourceType> = this.resources[r.owner.rid] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>;
 				if (cachedOwner.services) {
 					return cachedOwner.services;
 				}
@@ -245,8 +238,6 @@ class HueBridge {
 
 			API.setBridgeUpdate({
 				config: this.config,
-				version: 1,
-				method: "PUT",
 				data: {
 					swupdate2: {
 						checkforupdate: true,
@@ -268,8 +259,14 @@ class HueBridge {
 		}
 	}
 
-	pushUpdatedState(resource: ExpandedResource, updatedType: ResourceType, suppressMessage: boolean = false): void {
-		const msg = { id: resource.id, type: resource.type, updatedType: updatedType, services: resource["services"] ? Object.keys(resource["services"]) : [], suppressMessage: suppressMessage };
+	pushUpdatedState(resource: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType>, updatedType: ResourceType, suppressMessage: boolean = false): void {
+		const msg = {
+			id: resource.id,
+			type: resource.type,
+			updatedType: updatedType,
+			services: (isServiceOwnerResource(resource) && resource.services) ? Object.keys(resource.services) : [],
+			suppressMessage: suppressMessage
+		};
 		this.events.emit(this.config.id + "_" + resource.id, msg);
 		this.events.emit(this.config.id + "_" + "globalResourceUpdates", msg);
 
@@ -287,11 +284,12 @@ class HueBridge {
 		}
 	}
 
+	/*
 	get(type: ResourceType, id: ResourceId | false = false, options = {}) {
 		if (id) {
 			// GET RESOURCE BY ID
 			if (!this.resources[id]) { return false; }
-			const targetResource: ExpandedResource = this.resources[id];
+			const targetResource: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType> = this.resources[id];
 			const targetId = targetResource.id;
 			const lastState = this.lastStates[type+targetResource.id] ? Object.assign({}, this.lastStates[type+targetResource.id]) : false;
 
@@ -358,10 +356,12 @@ class HueBridge {
 			return Object.values(allFilteredResources);
 		}
 	}
+	*/
 }
 
-module.exports = function(RED) {
-	function HueBridge(config)
+		/*
+module.exports = (RED: NodeRed.NodeAPI) {
+	function HueBridge(config: HueBridgeDef)
 	{
 		// CREATE NODE
 		RED.nodes.createNode(scope, config);
@@ -527,7 +527,7 @@ module.exports = function(RED) {
 			scope.patchQueue.kill();
 		});
 	}
-
+	
 	RED.nodes.registerType("hue-bridge", HueBridge);
 
 	//
@@ -714,8 +714,11 @@ module.exports = function(RED) {
 		}
 	});
 };
+	*/
 
-module.exports = function (RED: NodeRed.NodeAPI) {
+export { HueBridge };
+
+export default function (RED: NodeRed.NodeAPI) {
     RED.nodes.registerType(
         "hue-bridge",
         function(this: NodeRed.Node, config: HueBridgeDef) {

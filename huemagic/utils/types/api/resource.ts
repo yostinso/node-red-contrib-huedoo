@@ -1,7 +1,7 @@
-import { OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceRef, ServiceOwnerResource, ServiceOwnerResourceType } from "../resources/generic";
+import { OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceRef, ResourceType, ServiceOwnerResource, ServiceOwnerResourceType } from "../resources/generic";
 import { ApiRequestV2, ApiResponseData, ApiResponseV2, BridgeConfig } from "./api";
 
-export interface Resource<T extends RealResourceType> {
+export interface Resource<T extends ResourceType> {
 	id: ResourceId;
     type: T;
 }

@@ -48,6 +48,13 @@ export interface RealResource<T extends RealResourceType> {
     type: T;
     id_v1?: string;
 }
+export interface SpecialResource<T extends SpecialResourceType> {
+    id: ResourceId;
+    type: T;
+    id_v1?: string;
+    updated: string;
+}
+
 export interface OwnedResource<T extends OwnedResourceType> extends Resource<T> {
     owner?: ResourceRef<T>
 }
@@ -63,7 +70,7 @@ export interface ServiceOwnerResource<T extends ServiceOwnerResourceType> extend
     }
     grouped_services?: ResourceRef<any>[]
 }
-export function isServiceOwnerResourced(resource: Resource<any>): resource is OwnedResource<ServiceOwnerResourceType> {
+export function isServiceOwnerResource(resource: Resource<any>): resource is ServiceOwnerResource<ServiceOwnerResourceType> {
     return isServiceOwnerType(resource.type);
 }
 
