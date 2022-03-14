@@ -45,9 +45,9 @@ class HueBridge {
 		this.events = new EventEmitter();
 	}
 
-	start() {
+	start(): Promise<boolean> {
 		this.node.log("Initializing the bridge (" + this.config.bridge + ")…");
-		API.init(this.config)
+		return API.init(this.config)
 		.then(() => {
 			this.node.log("Connected to bridge");
 			return this.getAllResources();
@@ -74,9 +74,17 @@ class HueBridge {
 			return true;
 		})
 		.catch((error) => {
-			// RETRY AFTER 30 SECONDS
-			this.node.log(error);
-			if (this.nodeActive == true) { setTimeout(() => { this.start(); }, 30000); }
+			return new Promise((resolve) => {
+				// RETRY AFTER 30 SECONDS
+				this.node.log(error);
+				if (this.nodeActive) {
+					setTimeout(() => {
+						resolve(this.start());
+					}, 30000);
+				} else {
+					resolve(false);
+				}
+			});
 		});
 	}
 

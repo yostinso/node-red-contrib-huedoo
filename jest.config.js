@@ -6,6 +6,7 @@ module.exports = {
   transform: {"\\.(ts|tsx)$": "ts-jest"},
   verbose: true,
   collectCoverage: true,
+  testTimeout: 2000,
   globals: {
     "ts-jest": {
       tsconfig: "tsconfig.json"
