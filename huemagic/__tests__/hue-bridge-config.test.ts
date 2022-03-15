@@ -1,31 +1,23 @@
 jest.mock("node-red");
 jest.mock("../utils/api");
 
-import * as NodeRed from "node-red";
-import * as registry from "@node-red/registry";
+import { Node } from "node-red";
 import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
 
 import API from "../utils/api";
 import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
 import { Bridge } from "../utils/types/api/bridge";
-import { RulesV1Response, RulesV1ResponseItem } from "../utils/types/api/rules";
+import { RulesV1ResponseItem } from "../utils/types/api/rules";
 import { defaultRules } from "../utils/__fixtures__/api/rules";
 import { defaultResources } from "../utils/__fixtures__/api/resources";
 
 
-const nodeCreate = jest.fn();
 const nodeApiLog = jest.fn().mockName("nodeApiLog");
 const nodeLog = jest.fn().mockName("nodeLog");
 
-const RED: NodeRed.NodeAPI = {
-    nodes: {
-        createNode: nodeCreate
-    } as unknown as registry.NodeAPINodes,
-    log: nodeApiLog as unknown as registry.NodeApiLog,
-} as unknown as NodeRed.NodeAPI;
-const node: NodeRed.Node = {
+const node: Node = {
     log: nodeLog
-} as unknown as NodeRed.Node;
+} as unknown as Node;
 
 
 const BRIDGE = "bridge-" + Math.random();
@@ -53,19 +45,16 @@ function mockInstantTimeout() {
 
 describe(HueBridge, () => {
     beforeEach(() => {
-        nodeCreate.mockClear();
         nodeLog.mockClear();
     });
     it("should be constructable", () => {
-        new HueBridge(RED, node, config);
-        expect(nodeCreate).toBeCalledTimes(1);
-        expect(nodeCreate).toBeCalledWith(node, config);
+        expect(() => new HueBridge(node, config)).not.toThrow();
     });
 
     describe("after construction", () => {
-        let bridgeNode = new HueBridge(RED, node, config);
+        let bridgeNode = new HueBridge(node, config);
         beforeEach(() => {
-            bridgeNode = new HueBridge(RED, node, config);
+            bridgeNode = new HueBridge(node, config);
         });
 
         describe(bridgeNode.start, () => {

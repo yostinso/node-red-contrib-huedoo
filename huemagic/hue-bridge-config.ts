@@ -1,18 +1,11 @@
-import axios from "axios";
 import dayjs from "dayjs";
-import { diff } from "deep-object-diff";
 import EventEmitter from "events";
-import fastq from "fastq";
-import https from "https";
 import * as NodeRed from "node-red";
+import { ES6Node } from "./ES6Node";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
-import {
-	HueBridgeMessage, HueBrightnessMessage,
-	HueButtonsMessage, HueGroupMessage, HueLightMessage, HueMotionMessage, HueRulesMessage, HueTemperatureMessage
-} from "./utils/messages";
 import { Bridge } from "./utils/types/api/bridge";
-import { Resource, ResourceResponse } from "./utils/types/api/resource";
+import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
 import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
 import { isOwnedResource, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
@@ -24,8 +17,7 @@ export interface HueBridgeDef extends NodeRed.NodeDef {
 	key: string;
 }
 
-class HueBridge {
-    private readonly node: NodeRed.Node; 
+class HueBridge extends ES6Node {
     private readonly config: HueBridgeDef;
 	public enabled: boolean = true;
 	private _resources: ProcessedResources = {};
@@ -39,22 +31,21 @@ class HueBridge {
 	// RESOURCE ID PATTERN
 	static readonly validResourceID = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/gi;
 
-    constructor(RED: NodeRed.NodeAPI, node: NodeRed.Node, config: HueBridgeDef) {
-        RED.nodes.createNode(node, config);
-        this.node = node;
+    constructor(node: NodeRed.Node, config: HueBridgeDef) {
+		super(node); // become a Node!
         this.config = config;
 		this.events = new EventEmitter();
 	}
 
 	start(): Promise<boolean> {
-		this.node.log("Initializing the bridge (" + this.config.bridge + ")…");
+		this.log("Initializing the bridge (" + this.config.bridge + ")…");
 		return API.init(this.config)
 		.then(() => {
-			this.node.log("Connected to bridge");
+			this.log("Connected to bridge");
 			return this.getAllResources();
 		})
 		.then((allResources) => {
-			this.node.log("Processing bridge resources…");
+			this.log("Processing bridge resources…");
 			return expandedResources(allResources);
 		})
 		.then(([ allResources, groupsOfResources ]) => {
@@ -63,7 +54,7 @@ class HueBridge {
 			this.groupsOfResources = groupsOfResources;
 
 			// EMIT INITIAL STATES -> NODES
-			this.node.log("Initial emit of resource states…");
+			this.log("Initial emit of resource states…");
 			return this.emitInitialStates();
 		})
 		.then(() => {
@@ -77,7 +68,7 @@ class HueBridge {
 		.catch((error) => {
 			return new Promise((resolve) => {
 				// RETRY AFTER 30 SECONDS
-				this.node.log(error);
+				this.log(error);
 				if (this.enabled) {
 					setTimeout(() => {
 						resolve(this.start());
@@ -167,7 +158,7 @@ class HueBridge {
 	keepUpdated() {
 		if(!this.config.disableupdates)
 		{
-			this.node.log("Keeping nodes up-to-date…");
+			this.log("Keeping nodes up-to-date…");
 
 			// REFRESH STATES (SSE)
 			this.refreshStatesSSE();
@@ -205,7 +196,7 @@ class HueBridge {
 	}
 
 	refreshStatesSSE() {
-		this.node.log("Subscribing to bridge events…");
+		this.log("Subscribing to bridge events…");
 		API.subscribe(this.config, (updates) => {
 			const currentDateTime = dayjs().format();
 
@@ -728,11 +719,11 @@ module.exports = (RED: NodeRed.NodeAPI) {
 export { HueBridge };
 
 export default function (RED: NodeRed.NodeAPI) {
-    RED.nodes.registerType(
-        "hue-bridge",
-        function(this: NodeRed.Node, config: HueBridgeDef) {
-            RED.nodes.createNode(this, config);
-			new HueBridge(RED, this, config);
-        }
-    );
+	RED.nodes.registerType(
+		"hue-bridge",
+		function (this: NodeRed.Node, config: HueBridgeDef) {
+			RED.nodes.createNode(this, config);
+			return new HueBridge(this, config);
+		}
+	)
 }
