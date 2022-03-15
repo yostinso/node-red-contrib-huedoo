@@ -88,7 +88,18 @@ describe(HueBridge, () => {
                 mockTimeout.mockRestore();
                 jest.useRealTimers();
             });
+            it("should not rety when the node is disabled", () => {
+                bridgeNode.enabled = false;
+                API.init = jest.fn().mockRejectedValueOnce("error message");
+                return expect(bridgeNode.start()).resolves.toBe(false);
+            })
         })
+
+        describe(bridgeNode.getBridgeInformation, () => {
+            it("should fetch and generate a bridge config", () => {
+
+            });
+        });
     });
 
 });

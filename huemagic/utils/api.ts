@@ -8,6 +8,7 @@ import { AllResourcesRequest, Resource, ResourceRequest, ResourceResponse, Resou
 import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId } from "./types/api/api";
 import { EventUpdateResponse } from "./types/api/event";
 import { ExpandedResource } from "./types/expanded/resource";
+import { stat } from "fs";
 
 export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType> };
 export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
@@ -56,6 +57,23 @@ function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequ
 	});
 }
 
+export interface APIStaticInterface {
+	init(config: ConfigRequest): Promise<ConfigResponse>;
+	rules(request: RulesRequest): Promise<RulesV1Response>;
+	config(request: BridgeRequest): Promise<BridgeV1Response>;
+	setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response>;
+	getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]>;
+	getResources<T extends RealResourceType>(request: ResourcesRequest<T>): Promise<ResourceResponse<T>[]>;
+	getResource<R extends RealResourceType, T extends ResourceRequest<R>>(request: T): Promise<ResourceResponse<R>>;
+	subscribe(config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void): Promise<true>;
+	unsubscribe(config: BridgeConfigWithId): void;
+}
+
+function staticImplements<T>() {
+    return <U extends T>(constructor: U) => {constructor};
+}
+
+@staticImplements<APIStaticInterface >()
 class API {
 	// EVENTS
 	private static events: {

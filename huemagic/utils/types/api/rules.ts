@@ -8,10 +8,11 @@ export interface RulesRequest extends ApiRequestV1<undefined> {
 export interface RulesV1ResponseItem {
     name: string;
     lasttriggered: string;
-    creationtime: string;
+    created: string;
     timestriggered: number;
     owner: string;
     status: string;
+    recycle?: boolean;
     conditions: {
         address: string;
         operator: string;

@@ -27,8 +27,9 @@ export interface HueBridgeDef extends NodeRed.NodeDef {
 class HueBridge {
     private readonly node: NodeRed.Node; 
     private readonly config: HueBridgeDef;
-	private nodeActive: boolean = true;
-	private resources: ProcessedResources = {};
+	public enabled: boolean = true;
+	private _resources: ProcessedResources = {};
+	public get resources() { return this._resources; }
 	private groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
 	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
 	private readonly events: EventEmitter;
@@ -58,7 +59,7 @@ class HueBridge {
 		})
 		.then(([ allResources, groupsOfResources ]) => {
 			// SAVE CURRENT RESOURCES
-			this.resources = allResources;
+			this._resources = allResources;
 			this.groupsOfResources = groupsOfResources;
 
 			// EMIT INITIAL STATES -> NODES
@@ -77,7 +78,7 @@ class HueBridge {
 			return new Promise((resolve) => {
 				// RETRY AFTER 30 SECONDS
 				this.node.log(error);
-				if (this.nodeActive) {
+				if (this.enabled) {
 					setTimeout(() => {
 						resolve(this.start());
 					}, 30000);
@@ -141,7 +142,7 @@ class HueBridge {
 					updated: dayjs().format(),
 				}
 				if (replaceResources) {
-					this.resources[b.id] = b;
+					this._resources[b.id] = b;
 				}
 				resolve(b);
 			}).catch((error) => reject(error));
@@ -154,7 +155,7 @@ class HueBridge {
 			// PUSH STATES
 			setTimeout(() => {
 				// PUSH ALL STATES
-				Object.entries(this.resources).forEach(([id, resource]) => {
+				Object.entries(this._resources).forEach(([id, resource]) => {
 					this.pushUpdatedState(resource, resource.type, true);
 				});
 
@@ -177,7 +178,7 @@ class HueBridge {
 		if (isOwnedResource(resource)) {
 			let r = resource as OwnedResource<OwnedResourceType>;
 			if (r.owner) {
-				let cachedOwner: ExpandedServiceOwnerResource<ServiceOwnerResourceType> = this.resources[r.owner.rid] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>;
+				let cachedOwner: ExpandedServiceOwnerResource<ServiceOwnerResourceType> = this._resources[r.owner.rid] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>;
 				if (cachedOwner.services) {
 					return cachedOwner.services;
 				}
@@ -197,8 +198,8 @@ class HueBridge {
 					delete ownerServices.button[key]
 				}
 			}
-		} else if (this.resources[resource.id]) {
-			previousState = this.resources[resource.id] as ExpandedResource<T>;
+		} else if (this._resources[resource.id]) {
+			previousState = this._resources[resource.id] as ExpandedResource<T>;
 		}
 		return previousState;
 	}
@@ -223,17 +224,17 @@ class HueBridge {
 						if (ownerServices[resource.type] !== undefined) {
 							let ownedResources = (ownerServices[resource.type] || {});
 							(ownedResources[resource.id] as ExpandedResource<RealResourceType>) = mergedState;
-							this.resources[resource.id].updated = currentDateTime;
+							this._resources[resource.id].updated = currentDateTime;
 						}
 
 						// PUSH STATE
-						this.pushUpdatedState(this.resources[resource.id], resource.type);
+						this.pushUpdatedState(this._resources[resource.id], resource.type);
 					} else {
-						this.resources[resource.id] = mergedState;
-						this.resources[resource.id].updated = currentDateTime;
+						this._resources[resource.id] = mergedState;
+						this._resources[resource.id].updated = currentDateTime;
 
 						// PUSH STATE
-						this.pushUpdatedState(this.resources[resource.id], resource.type);
+						this.pushUpdatedState(this._resources[resource.id], resource.type);
 					}
 				}
 			});
@@ -254,13 +255,13 @@ class HueBridge {
 				}
 			}).then((status) => {
 				// SUCCESS // TRY AGAIN IN 12H
-				if (this.nodeActive) {
+				if (this.enabled) {
 					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			})
 			.catch((error) => {
 				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
-				if (this.nodeActive) {
+				if (this.enabled) {
 					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
 			});

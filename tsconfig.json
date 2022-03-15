@@ -12,6 +12,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     
-    "rootDir": "huemagic"
+    "rootDir": "huemagic",
+    "experimentalDecorators": true
   }
 }
