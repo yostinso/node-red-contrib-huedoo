@@ -1,2 +1,3 @@
 {
+    "jest.jestCommandLine": "npx jest --maxWorkers 4",
 }

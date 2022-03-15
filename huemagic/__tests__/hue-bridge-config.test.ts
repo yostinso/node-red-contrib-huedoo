@@ -1,20 +1,21 @@
 jest.mock("node-red");
+jest.mock("../utils/api");
 
 import * as NodeRed from "node-red";
 import * as registry from "@node-red/registry";
 import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
 
 import API from "../utils/api";
-import { promise } from "fastq";
-import { start } from "repl";
-import { callbackify } from "util";
-jest.mock("../utils/api");
+import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
+import { Bridge } from "../utils/types/api/bridge";
+import { RulesV1Response, RulesV1ResponseItem } from "../utils/types/api/rules";
+import { defaultRules } from "../utils/__fixtures__/api/rules";
+import { defaultResources } from "../utils/__fixtures__/api/resources";
+
 
 const nodeCreate = jest.fn();
 const nodeApiLog = jest.fn().mockName("nodeApiLog");
 const nodeLog = jest.fn().mockName("nodeLog");
-
-const nodeRed = jest.createMockFromModule("node-red") as jest.Mocked<NodeRed.NodeRedApp>;
 
 const RED: NodeRed.NodeAPI = {
     nodes: {
@@ -79,25 +80,110 @@ describe(HueBridge, () => {
                 mockStart.mockResolvedValueOnce(true);
 
                 // Trigger an error so we retry
-                API.init = jest.fn().mockRejectedValueOnce("error message");
+                jest.mocked(API.init).mockRejectedValueOnce("error message");
 
                 await bridgeNode.start();
                 expect(nodeLog).toBeCalledTimes(2);
                 expect(nodeLog).toBeCalledWith("error message");
 
-                mockTimeout.mockRestore();
                 jest.useRealTimers();
             });
             it("should not rety when the node is disabled", () => {
                 bridgeNode.enabled = false;
-                API.init = jest.fn().mockRejectedValueOnce("error message");
-                return expect(bridgeNode.start()).resolves.toBe(false);
+                jest.mocked(API.init).mockRejectedValueOnce("error message");
+                const result = expect(bridgeNode.start()).resolves.toBe(false);
+                return result;
             })
         })
 
         describe(bridgeNode.getBridgeInformation, () => {
             it("should fetch and generate a bridge config", () => {
-
+                return expect(bridgeNode.getBridgeInformation()).resolves.toEqual(expect.objectContaining({
+                    ...defaultBridgeConfig,
+                    id: "bridge",
+                    id_v1: "/config",
+                    type: "bridge",
+                    updated: expect.stringMatching(/.*T.*/)
+                }));
+            });
+            it("should not replace the bridge entry if replaceResources is true", async () => {
+                await bridgeNode.getBridgeInformation();
+                expect(bridgeNode.resources["bridge"]).toBeUndefined();
+            });
+            it("should replace the bridge entry if replaceResources is true", async () => {
+                await bridgeNode.getBridgeInformation(true);
+                expect(bridgeNode.resources["bridge"]).toEqual(expect.objectContaining({
+                    type: "bridge",
+                    id: "bridge"
+                }));
+            });
+            it("should reject on API failure", () => {
+                jest.mocked(API.config).mockRejectedValueOnce("error message");
+                const result = expect(bridgeNode.getBridgeInformation()).rejects.toEqual("error message");
+                return result;
+            });
+        });
+        describe(bridgeNode.getAllResources, () => {
+            it("should include the bridge in the results", () => {
+                jest.spyOn(bridgeNode, "getBridgeInformation").mockImplementation(() => {
+                    return Promise.resolve({ type: "bridge", id: "mockBridge" }) as Promise<Bridge>;
+                });
+                let resources = bridgeNode.getAllResources();
+                return expect(resources).resolves.toContainEqual(expect.objectContaining({
+                    id: "mockBridge",
+                    type: "bridge"
+                }));
+            });
+            it("should include rules in the results", () => {
+                jest.mocked(API.rules).mockResolvedValueOnce({
+                    "my_rule": { name: "My Rule", status: "mock status" } as RulesV1ResponseItem
+                });
+                let resources = bridgeNode.getAllResources();
+                return expect(resources).resolves.toContainEqual(expect.objectContaining({
+                    name: "My Rule",
+                    type: "rule",
+                    id: "rule_my_rule",
+                    id_v1: "/rules/my_rule",
+                    status: "mock status"
+                }));
+            });
+            it("should include device resources in the results", () => {
+                jest.mocked(API.getAllResources).mockResolvedValueOnce([
+                    { id: "my_device", type: "device" }
+                ])
+                let resources = bridgeNode.getAllResources();
+                return expect(resources).resolves.toContainEqual(expect.objectContaining({
+                    id: "my_device", type: "device"
+                }));
+            });
+            it("should contain everything as fetched from the API", async () => {
+                // Integration test
+                let resources = await bridgeNode.getAllResources();
+                expect(resources).toContainEqual(expect.objectContaining(defaultBridgeConfig))
+                Object.entries(defaultRules).forEach(([id, rule]) => {
+                    expect(resources).toContainEqual(expect.objectContaining({
+                        ...rule,
+						id: `rule_${id}`,
+						id_v1: `/rules/${id}`,
+                        type: "rule"
+                    }))
+                });
+                defaultResources.forEach((resource) => {
+                    expect(resources).toContainEqual(expect.objectContaining(resource))
+                });
+            });
+            it("should be true that all entries have id, id_v1, and type", async () => {
+                let resources = await bridgeNode.getAllResources();
+                resources.forEach((resource) => {
+                    expect(resource).toHaveProperty("id");
+                    expect(resource).toHaveProperty("id_v1");
+                    expect(resource).toHaveProperty("type");
+                });
+            });
+            it("should reject on API failure", () => {
+                jest.mocked(API.config).mockRejectedValueOnce("error message");
+                const result = expect(bridgeNode.getAllResources()).rejects.toEqual("error message");
+                return result;
             });
         });
     });

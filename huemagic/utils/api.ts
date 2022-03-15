@@ -109,7 +109,7 @@ class API {
 		const req = { ...request, method: "PUT" } as const;
 		return makeAxiosRequestV1(req, `config`)
 	}
-	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]> {
+	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<RealResourceType>[]> {
 		const req = { ...request, method: "GET" } as const;
 		return makeAxiosRequestV2(req, "resource");
 	}

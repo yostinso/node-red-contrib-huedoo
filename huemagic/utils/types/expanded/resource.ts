@@ -119,20 +119,6 @@ export function expandedResources(allResources: ResourceResponse<any>[]): [ Expa
     return [ expandedResources, groupedServices ];
 }
 
-/*
-export interface ExpandedBasicServiceResource extends BaseResourceData {
-	types?: ResourceType[]
-	updated?: string;
-    type: "device" | "room" | "zone" | "bridge_home";
-	services: { [type: string]: { [id: ResourceId]: ExpandedResource } }
-	types?: ResourceType[]
-	updated?: string;
-	grouped_services?: ResourceRef[];
-}
-export type ExpandedBasicResource = GenericExpandedBasicResource | Light;
-*/
-
-
 type Keys = "a" | "b" | "c";
 interface ValueGeneric<T extends Keys> {
     type: Keys

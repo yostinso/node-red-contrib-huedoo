@@ -1,3 +1,4 @@
+import { Method } from "axios";
 import { RealResource, ResourceRef } from "../resources/generic";
 import { ApiRequestV1, ApiResponseV1, BridgeConfig } from "./api";
 
@@ -20,7 +21,7 @@ export interface RulesV1ResponseItem {
     }[]
     actions: {
         address: string;
-        method: "GET" | "PUT" | "DELETE";
+        method: Method;
         body: object
     }[]
 };

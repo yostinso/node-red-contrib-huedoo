@@ -55,21 +55,27 @@ export interface SpecialResource<T extends SpecialResourceType> {
     updated: string;
 }
 
-export interface OwnedResource<T extends OwnedResourceType> extends Resource<T> {
-    owner?: ResourceRef<T>
+export interface OwnedResource<T extends OwnedResourceType> extends RealResource<T> {
+    owner?: ResourceRef<RealResourceType>
 }
 export function isOwnedResource(resource: Resource<any>): resource is OwnedResource<OwnedResourceType> {
     return isOwnedResourceType(resource.type);
 }
 
 export interface ServiceOwnerResource<T extends ServiceOwnerResourceType> extends OwnedResource<T> {
+    services?: ResourceRef<OwnedResourceType>[]
+    grouped_services?: ResourceRef<OwnedResourceType>[]
+}
+/*
+export interface ServiceOwnerResource<T extends ServiceOwnerResourceType> extends OwnedResource<T> {
     services?: {
         [type in OwnedResourceType]+?: {
-            [id: ResourceId]: ResourceRef<any>
+            [id: ResourceId]: ResourceRef<type>
         }
     }
-    grouped_services?: ResourceRef<any>[]
+    grouped_services?: ResourceRef<OwnedResourceType>[]
 }
+*/
 export function isServiceOwnerResource(resource: Resource<any>): resource is ServiceOwnerResource<ServiceOwnerResourceType> {
     return isServiceOwnerType(resource.type);
 }

@@ -39,7 +39,7 @@ export interface BridgeV1Response extends ApiResponseV1 {
     name: string;
 	bridgeid: string;
 	factorynew: boolean;
-	replacesbridgeid: string;
+	replacesbridgeid: string | null;
 	datastoreversion: string;
 	starterkitid: string;
 	swversion: string;
@@ -54,12 +54,54 @@ export interface BridgeV1Response extends ApiResponseV1 {
 	localtime: string;
 	portalservices: boolean;
 	portalconnection: string;
+	portalstate?: {
+		signedon: boolean,
+		incoming: boolean,
+		outgoing: boolean,
+		communication: string
+	},
 	linkbutton: boolean;
-	updated: string;
+	internetservices?: {
+		internet: string,
+		remoteaccess: string,
+		time: string,
+		swupdate: string
+	},
+	updated?: string;
 	modelid: string;
     zigbeechannel: number;
     mac: string;
     dhcp: boolean;
+	backup?: {
+		status: string,
+		errorcode: number
+	},
+
+	swupdate?: {
+		updatestate: number,
+		checkforupdate: boolean,
+		devicetypes: {
+			bridge: boolean,
+			lights: string[],
+			sensors: string[]
+		},
+		url: string,
+		text: string,
+		notify: boolean
+	},
+	swupdate2?: {
+		checkforupdate: boolean,
+		lastchange: string,
+		bridge: {
+			state: string,
+			lastinstall: string,
+		},
+		state: string,
+		autoinstall: {
+			updatetime: string,
+			on: boolean
+		}
+	},
 
 	whitelist: {
 		[ id: string ]: {

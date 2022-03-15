@@ -7,9 +7,13 @@ module.exports = {
   verbose: true,
   collectCoverage: true,
   testTimeout: 2000,
+  restoreMocks: true,
   globals: {
     "ts-jest": {
       tsconfig: "tsconfig.json"
     }
-  }
+  },
+  coveragePathIgnorePatterns: [
+    "<rootDir>/.*/__fixtures__"
+  ]
 };

@@ -5,7 +5,10 @@ export type GradientColor = { color: { xy: XYColor; } }
 
 export type ColorSettings = {
     on?: { on: boolean };
-    dimming?: { brightness: number; }
+    dimming?: {
+        brightness: number;
+        min_dim_level?: number;
+    }
     color_temperature?: {
         mirek?: number;
         mirek_valid?: boolean;

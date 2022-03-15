@@ -5,6 +5,9 @@ import { EventUpdateResponse } from "../types/api/event";
 import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "../types/api/resource";
 import { RulesRequest, RulesV1Response } from "../types/api/rules";
 import { RealResource, RealResourceType } from "../types/resources/generic";
+import { defaultBridgeConfig, makeConfig } from "../__fixtures__/api/config";
+import { defaultResources } from "../__fixtures__/api/resources";
+import { defaultRules, makeRules } from "../__fixtures__/api/rules";
 
 function staticImplements<T>() {
     return <U extends T>(constructor: U) => {constructor};
@@ -26,81 +29,44 @@ class mockAPI {
                 starterkitid: ""
             });
         }
-    ),
+    )
     static rules = jest.fn().mockImplementation(
         (request: RulesRequest): Promise<RulesV1Response> => {
-            return Promise.resolve({
-                "1": {
-                    "name": "1:",
-                    "owner": "773a6426-a3f5-11ec-af60-00155d1a2b49",
-                    "created": "2022-02-22T22:22:22",
-                    "lasttriggered": "none",
-                    "timestriggered": 0,
-                    "status": "enabled",
-                    "recycle": true,
-                    "conditions": [
-                        {
-                            "address": "/groups/2/state/all_on",
-                            "operator": "eq",
-                            "value": "false"
-                        },
-                        {
-                            "address": "/groups/2/state/all_on",
-                            "operator": "dx"
-                        },
-                        {
-                            "address": "/sensors/44/state/status",
-                            "operator": "gt",
-                            "value": "0"
-                        }
-                    ],
-                    "actions": [
-                        {
-                            "address": "/sensors/44/state",
-                            "method": "PUT",
-                            "body": {
-                                "status": 0
-                            }
-                        }
-                    ]
-                }
-            });
+            return Promise.resolve(defaultRules);
         }
     )
     static config = jest.fn().mockImplementation(
         (request: BridgeRequest): Promise<BridgeV1Response> => {
-            return Promise.resolve({
-            });
+            return Promise.resolve(defaultBridgeConfig)
         }
     )
-    static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response>
+    static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
+        throw new Error("not implemented");
+    }
     static getAllResources = jest.fn().mockImplementation(
         (request: AllResourcesRequest): Promise<ResourceResponse<any>[]> => {
-            return Promise.resolve({
-            });
+            return Promise.resolve(defaultResources);
         }
     )
     static getResources = jest.fn().mockImplementation(
         <T extends RealResourceType>(request: ResourcesRequest<T>): Promise<ResourceResponse<T>[]> => {
-            return Promise.resolve({
-            });
+            throw new Error("not implemented");
         }
     )
     static getResource = jest.fn().mockImplementation(
         <R extends RealResourceType, T extends ResourceRequest<R>>(request: T): Promise<ResourceResponse<R>> => {
-            return Promise.resolve({
-            });
+            throw new Error("not implemented");
         }
     )
     static subscribe = jest.fn().mockImplementation(
-        (config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[])) => {
-
+        (config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void) => {
+            throw new Error("not implemented");
         }
     )
 
     static unsubscribe = jest.fn().mockImplementation(
         (config: BridgeConfigWithId): void => {
-            
+            throw new Error("not implemented");
         }
     )
 }
