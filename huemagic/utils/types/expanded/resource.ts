@@ -1,7 +1,7 @@
 import { all } from "async";
 import { group } from "console";
 import { Resource, ResourceResponse } from "../api/resource";
-import { isOwnedResourceType, OwnedResource, OwnedResourceType, RealResourceType, ResourceId, ResourceRef, ServiceOwnerResource, ServiceOwnerResourceType } from "../resources/generic";
+import { isOwnedResourceType, isServiceOwnerType, OwnedResource, OwnedResourceType, RealResourceType, ResourceId, ResourceRef, ServiceOwnerResource, ServiceOwnerResourceType } from "../resources/generic";
 
 /*
 Expanded resources replace ServiceRefs with the full device details, specifically:
@@ -26,6 +26,9 @@ export interface ExpandedServiceOwnerResource<T extends ServiceOwnerResourceType
             [id: ResourceId]: Resource<T>
         }
     }
+}
+export function isExpandedServiceOwnerResource(resource: Resource<any>): resource is ExpandedServiceOwnerResource<ServiceOwnerResourceType> {
+    return isServiceOwnerType(resource.type);
 }
 
 type UnexpandedResources = { [id: ResourceId]: ResourceResponse<any> };

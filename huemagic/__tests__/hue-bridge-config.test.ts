@@ -1,5 +1,6 @@
 jest.mock("node-red");
 jest.mock("../utils/api");
+jest.mock("events");
 
 import { Node } from "node-red";
 import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
@@ -10,9 +11,11 @@ import { Bridge } from "../utils/types/api/bridge";
 import { RulesV1ResponseItem } from "../utils/types/api/rules";
 import { defaultRules } from "../utils/__fixtures__/api/rules";
 import { defaultResources } from "../utils/__fixtures__/api/resources";
+import { ExpandedResource, ExpandedServiceOwnerResource } from "../utils/types/expanded/resource";
+import { EventEmitter as _EventEmitter } from "events";
 
+const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
 
-const nodeApiLog = jest.fn().mockName("nodeApiLog");
 const nodeLog = jest.fn().mockName("nodeLog");
 
 const node: Node = {
@@ -32,7 +35,6 @@ const config: HueBridgeDef = {
 }
 function mockInstantTimeout() {
     jest.useFakeTimers();
-    const origTimeout = setTimeout;
     const mockTimeout = jest.spyOn(global, "setTimeout").mockImplementation(
         (cb, ms) => {
             const t = setImmediate(cb);
@@ -52,12 +54,12 @@ describe(HueBridge, () => {
     });
 
     describe("after construction", () => {
-        let bridgeNode = new HueBridge(node, config);
+        let bridgeNode!: HueBridge;
         beforeEach(() => {
             bridgeNode = new HueBridge(node, config);
         });
 
-        describe(bridgeNode.start, () => {
+        describe(HueBridge.prototype.start, () => {
             it("should retry a connection on connection failure", async () => {
                 jest.useFakeTimers();
                 const mockTimeout = mockInstantTimeout();
@@ -77,7 +79,7 @@ describe(HueBridge, () => {
 
                 jest.useRealTimers();
             });
-            it("should not rety when the node is disabled", () => {
+            it("should not retry when the node is disabled", () => {
                 bridgeNode.enabled = false;
                 jest.mocked(API.init).mockRejectedValueOnce("error message");
                 const result = expect(bridgeNode.start()).resolves.toBe(false);
@@ -85,7 +87,7 @@ describe(HueBridge, () => {
             })
         })
 
-        describe(bridgeNode.getBridgeInformation, () => {
+        describe(HueBridge.prototype.getBridgeInformation, () => {
             it("should fetch and generate a bridge config", () => {
                 return expect(bridgeNode.getBridgeInformation()).resolves.toEqual(expect.objectContaining({
                     ...defaultBridgeConfig,
@@ -112,7 +114,7 @@ describe(HueBridge, () => {
                 return result;
             });
         });
-        describe(bridgeNode.getAllResources, () => {
+        describe(HueBridge.prototype.getAllResources, () => {
             it("should include the bridge in the results", () => {
                 jest.spyOn(bridgeNode, "getBridgeInformation").mockImplementation(() => {
                     return Promise.resolve({ type: "bridge", id: "mockBridge" }) as Promise<Bridge>;
@@ -175,6 +177,60 @@ describe(HueBridge, () => {
                 return result;
             });
         });
-    });
 
+        describe.only(HueBridge.prototype.pushUpdatedState, () => {
+            const msg = {
+                id: "my_resource",
+                type: "device",
+                updatedType: "light",
+                services: [],
+                suppressMessage: false
+            };
+            beforeEach(() => {
+                EventEmitter.mockReset();
+            })
+            const mockEmit = () => {
+                expect(EventEmitter.mock.instances.length).toBe(1);
+                const events = EventEmitter.mock.instances[0];
+                const emit = jest.mocked(events.emit);
+                emit.mockReturnValue(true); // noop events
+                return emit;
+            };
+
+            it.only("should emit events for updated resources", () => {
+                const resource: ExpandedResource<"device"> = {
+                    id: "my_resource",
+                    type: "device"
+                }
+
+                const emit = mockEmit();
+                bridgeNode.pushUpdatedState(resource, "light");
+
+                expect(emit).toBeCalledTimes(2);
+                expect(emit).toBeCalledWith("bridge_my_resource", msg);
+                expect(emit).toBeCalledWith("bridge_globalResourceUpdates", msg);
+            });
+            it("should include services in the message if the resource has services", () => {
+                const resource: ExpandedServiceOwnerResource<"device"> = {
+                    id: "my_resource",
+                    type: "device",
+                    services: {
+                        "button": { "my_button": { id: "my_button", type: "button" } },
+                        "device": { "my_device": { id: "my_device", type: "device" } }
+                    }
+                };
+                const emit = mockEmit();
+                bridgeNode.pushUpdatedState(resource, "light")
+
+                const serviceMsg = {
+                    ...msg,
+                    services: expect.arrayContaining(["button", "device"])
+                };
+                
+                expect(emit).toBeCalledTimes(2);
+                expect(emit).toBeCalledWith("bridge_my_resource", serviceMsg);
+                expect(emit).toBeCalledWith("bridge_globalResourceUpdates", serviceMsg);
+            });
+        });
+    });
 });

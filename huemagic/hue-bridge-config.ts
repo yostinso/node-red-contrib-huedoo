@@ -1,13 +1,13 @@
 import dayjs from "dayjs";
 import EventEmitter from "events";
 import * as NodeRed from "node-red";
-import { ES6Node } from "./ES6Node";
+import NodeRedNode from "./ES6Node";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
 import { Bridge } from "./utils/types/api/bridge";
 import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
-import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
+import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
 import { isOwnedResource, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
 
 export interface HueBridgeDef extends NodeRed.NodeDef {
@@ -17,7 +17,15 @@ export interface HueBridgeDef extends NodeRed.NodeDef {
 	key: string;
 }
 
-class HueBridge extends ES6Node {
+interface UpdatedStateEvent {
+	id: ResourceId,
+	type: ResourceType,
+	updatedType: ResourceType,
+	services: ResourceId[],
+	suppressMessage: boolean
+}
+
+class HueBridge extends NodeRedNode {
     private readonly config: HueBridgeDef;
 	public enabled: boolean = true;
 	private _resources: ProcessedResources = {};
@@ -260,11 +268,16 @@ class HueBridge extends ES6Node {
 	}
 
 	pushUpdatedState(resource: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType>, updatedType: ResourceType, suppressMessage: boolean = false): void {
-		const msg = {
+		let serviceIds: ResourceId[] = [];
+		if (isExpandedServiceOwnerResource(resource) && resource.services) {
+			serviceIds = Object.values(resource.services).map((h) => Object.keys(h)).flat();
+		}
+		
+		const msg: UpdatedStateEvent = {
 			id: resource.id,
 			type: resource.type,
 			updatedType: updatedType,
-			services: (isServiceOwnerResource(resource) && resource.services) ? Object.keys(resource.services) : [],
+			services: serviceIds,
 			suppressMessage: suppressMessage
 		};
 		this.events.emit(this.config.id + "_" + resource.id, msg);

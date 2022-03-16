@@ -28,7 +28,7 @@ function mergeResource(...objects: any) {
     }, {});
 }
 
-export function mergeDeep<T extends any>(left: T, right: T): T {
+export function mergeDeep<T extends any>(left: T, right: Partial<T>): T {
     return mergeResource(left, right) as T;
 }
 

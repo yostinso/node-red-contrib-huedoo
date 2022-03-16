@@ -23,7 +23,7 @@ interface DOMEventTarget {
     ): any;
 }
 
-export class ES6Node implements Node {
+export default class ES6Node implements Node {
     // @ts-ignore
     id: string 
     // @ts-ignore
