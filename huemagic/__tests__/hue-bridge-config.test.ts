@@ -13,6 +13,7 @@ import { defaultRules } from "../utils/__fixtures__/api/rules";
 import { defaultResources } from "../utils/__fixtures__/api/resources";
 import { ExpandedResource, ExpandedServiceOwnerResource } from "../utils/types/expanded/resource";
 import { EventEmitter as _EventEmitter } from "events";
+import { emit } from "process";
 
 const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
 
@@ -186,18 +187,19 @@ describe(HueBridge, () => {
                 services: [],
                 suppressMessage: false
             };
-            beforeEach(() => {
+            afterEach(() => {
                 EventEmitter.mockReset();
             })
+
             const mockEmit = () => {
                 expect(EventEmitter.mock.instances.length).toBe(1);
                 const events = EventEmitter.mock.instances[0];
                 const emit = jest.mocked(events.emit);
                 emit.mockReturnValue(true); // noop events
                 return emit;
-            };
+            }
 
-            it.only("should emit events for updated resources", () => {
+            it("should emit events for updated resources", () => {
                 const resource: ExpandedResource<"device"> = {
                     id: "my_resource",
                     type: "device"
@@ -210,26 +212,29 @@ describe(HueBridge, () => {
                 expect(emit).toBeCalledWith("bridge_my_resource", msg);
                 expect(emit).toBeCalledWith("bridge_globalResourceUpdates", msg);
             });
-            it("should include services in the message if the resource has services", () => {
-                const resource: ExpandedServiceOwnerResource<"device"> = {
-                    id: "my_resource",
-                    type: "device",
-                    services: {
-                        "button": { "my_button": { id: "my_button", type: "button" } },
-                        "device": { "my_device": { id: "my_device", type: "device" } }
-                    }
-                };
-                const emit = mockEmit();
-                bridgeNode.pushUpdatedState(resource, "light")
+            describe("if the resource has services", () => {
+                it("should include services in the messages", () => {
+                    const resource: ExpandedServiceOwnerResource<"device"> = {
+                        id: "my_resource",
+                        type: "device",
+                        services: {
+                            "button": { "my_button": { id: "my_button", type: "button" } },
+                            "device": { "my_device": { id: "my_device", type: "device" } }
+                        }
+                    };
+                    const emit = mockEmit();
+                    bridgeNode.pushUpdatedState(resource, "light")
 
-                const serviceMsg = {
-                    ...msg,
-                    services: expect.arrayContaining(["button", "device"])
-                };
-                
-                expect(emit).toBeCalledTimes(2);
-                expect(emit).toBeCalledWith("bridge_my_resource", serviceMsg);
-                expect(emit).toBeCalledWith("bridge_globalResourceUpdates", serviceMsg);
+                    const serviceMsg = {
+                        ...msg,
+                        services: expect.arrayContaining(["my_button", "my_device"])
+                    };
+                    
+                    expect(emit).toBeCalledTimes(2);
+                    expect(emit).toBeCalledWith("bridge_my_resource", serviceMsg);
+                    expect(emit).toBeCalledWith("bridge_globalResourceUpdates", serviceMsg);
+                });
+                it.todo("emit changes to groups if services are members of a group");
             });
         });
     });
