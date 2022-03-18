@@ -54,7 +54,7 @@ const lightTemplate: Light = {
     type: "light"
 }
 
-export function makeLight(id: number, lightName?: string, owner?: ResourceRef<RealResourceType>, extras: Partial<Light> = {}): Light {
+export function makeLight(id: string, lightName?: string, owner?: ResourceRef<RealResourceType>, extras: Partial<Light> = {}): Light {
     let name = lightName === undefined ? `Light ${id}` : lightName;
     let metadata = {
         ...lightTemplate.metadata,
@@ -63,8 +63,8 @@ export function makeLight(id: number, lightName?: string, owner?: ResourceRef<Re
     };
     return {
         ...lightTemplate,
-        id: uuid(),
-        id_v1: `/lights/${id}`,
+        id,
+        id_v1: `/lights/${nextId()}`,
         owner,
         metadata,
         ...extras
@@ -97,7 +97,7 @@ const deviceTemplate: Device = {
     */
     type: "device"
 }
-export function makeDevice(id: number, deviceName?: string, services?: ResourceRef<OwnedResourceType>[], extras: Partial<Device> = {}): Device {
+export function makeDevice(id: string, deviceName?: string, services?: ResourceRef<OwnedResourceType>[], extras: Partial<Device> = {}): Device {
     let name = deviceName === undefined ? `Device ${id}` : deviceName;
     let metadata = {
         ...deviceTemplate.metadata,
@@ -106,8 +106,8 @@ export function makeDevice(id: number, deviceName?: string, services?: ResourceR
     };
     return {
         ...deviceTemplate,
-        id: uuid(),
-        id_v1: `/lights/${id}`,
+        id,
+        id_v1: `/lights/${nextId()}`,
         metadata,
         ...extras
     };
@@ -123,7 +123,7 @@ export function makeResources(count: number = 2, types: (keyof typeof resourceMa
     let resources: ResourceResponse<RealResourceType>[] = [];
     for (let i = 0; i < count; i++) {
         let makeResource = makers[i % makers.length];
-        resources.push(makeResource(nextId()))
+        resources.push(makeResource(uuid()));
     }
     return resources;
 }

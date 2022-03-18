@@ -5,6 +5,7 @@ import NodeRedNode from "./ES6Node";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
 import { Bridge } from "./utils/types/api/bridge";
+import { EventUpdateResponse } from "./utils/types/api/event";
 import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
 import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
@@ -29,8 +30,9 @@ class HueBridge extends NodeRedNode {
     private readonly config: HueBridgeDef;
 	public enabled: boolean = true;
 	private _resources: ProcessedResources = {};
-	public get resources() { return this._resources; }
-	private groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
+	public get resources() { return this._resources; } // should be sealed, but isn't for testability
+	private _groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
+	public get groupsOfResources() { return this._groupsOfResources; } // should be sealed, but isn't for testability
 	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
@@ -59,7 +61,7 @@ class HueBridge extends NodeRedNode {
 		.then(([ allResources, groupsOfResources ]) => {
 			// SAVE CURRENT RESOURCES
 			this._resources = allResources;
-			this.groupsOfResources = groupsOfResources;
+			this._groupsOfResources = groupsOfResources;
 
 			// EMIT INITIAL STATES -> NODES
 			this.log("Initial emit of resource states…");
@@ -152,14 +154,14 @@ class HueBridge extends NodeRedNode {
 	emitInitialStates() {
 		return new Promise((resolve, reject) => {
 			// PUSH STATES
-			setTimeout(() => {
+			setImmediate(() => {
 				// PUSH ALL STATES
-				Object.entries(this._resources).forEach(([id, resource]) => {
+				Object.entries(this.resources).forEach(([id, resource]) => {
 					this.pushUpdatedState(resource, resource.type, true);
 				});
 
 				resolve(true);
-			}, 500);
+			});
 		});
 	}
 
@@ -169,7 +171,7 @@ class HueBridge extends NodeRedNode {
 			this.log("Keeping nodes up-to-date…");
 
 			// REFRESH STATES (SSE)
-			this.refreshStatesSSE();
+			this.subscribeToBridgeEventStream();
 		}
 	}
 
@@ -186,7 +188,7 @@ class HueBridge extends NodeRedNode {
 		return {};
 	}
 
-	private getPreviousResourceState<T extends RealResourceType>(resource: ExpandedResource<T>): ExpandedResource<T> | undefined {
+	getPreviousResourceState<T extends RealResourceType>(resource: ExpandedResource<T>): ExpandedResource<T> | undefined {
 		let previousState: ExpandedResource<T> | undefined = undefined;
 		let ownerServices = this.getCachedServices(resource);
 		if (ownerServices[resource.type]?.[resource.id] !== undefined) {
@@ -203,22 +205,20 @@ class HueBridge extends NodeRedNode {
 		return previousState;
 	}
 
-	refreshStatesSSE() {
-		this.log("Subscribing to bridge events…");
-		API.subscribe(this.config, (updates) => {
+	handleBridgeEvent(updates: EventUpdateResponse<RealResource<any>>[]): void {
 			const currentDateTime = dayjs().format();
 
 			updates.forEach((event) => {
 				let resource: ResourceResponse<RealResourceType> = event.data;
 				let previousState = this.getPreviousResourceState(resource);
 				// NO PREVIOUS STATE?
-				if (previousState === undefined) { return false; }
+				if (previousState === undefined) { return; }
 
 				// CHECK DIFFERENCES
 				const mergedState = mergeDeep(previousState, resource);
 
 				if (isDiff(previousState, mergedState)) {
-					if (isOwnedResource(resource)) {
+					if (isOwnedResource(resource) && resource.owner) {
 						let ownerServices = this.getCachedServices(resource);
 						if (ownerServices[resource.type] !== undefined) {
 							let ownedResources = (ownerServices[resource.type] || {});
@@ -237,7 +237,12 @@ class HueBridge extends NodeRedNode {
 					}
 				}
 			});
-		});
+
+	}
+
+	subscribeToBridgeEventStream() {
+		this.log("Subscribing to bridge events…");
+		API.subscribe(this.config, this.handleBridgeEvent);
 	}
 
 	autoUpdateFirmware() {
@@ -284,11 +289,9 @@ class HueBridge extends NodeRedNode {
 		this.events.emit(this.config.id + "_" + "globalResourceUpdates", msg);
 
 		// RESOURCE CONTAINS SERVICES? -> SERVICE IN GROUP? -> EMIT CHANGES TO GROUPS ALSO
-		if(this.groupsOfResources[resource.id])
-		{
-			for (var g = this.groupsOfResources[resource.id].length - 1; g >= 0; g--)
-			{
-				const groupID = this.groupsOfResources[resource.id][g];
+		if(this._groupsOfResources[resource.id]) {
+			for (var g = this._groupsOfResources[resource.id].length - 1; g >= 0; g--) {
+				const groupID = this._groupsOfResources[resource.id][g];
 				const groupMessage = { id: groupID, type: "group", updatedType: updatedType, services: [], suppressMessage: suppressMessage };
 
 				this.events.emit(this.config.id + "_" + groupID, groupMessage);

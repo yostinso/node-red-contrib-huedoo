@@ -64,6 +64,23 @@ function expandServiceOwnerResourceResponse(resource: ServiceOwnerResource<any>,
         });
 
         let groupedServices: GroupedServices = {};
+        /*
+        * grouped_services is an array[1] of ResourceRef; it exists on e.g. a "zone", and
+        * The ResourceRef will refer to a group, e.g. a grouped_light
+        * The zone will also have a services[] array of ResourceRefs.
+        * One of those will be the same as the above ResourceRef, and the rest
+        * seem to be members of the group.
+        * 
+        * To get from a grouped_light to the actual lights, you need to go:
+        * grouped_light.id -> zone by zone.grouped_services[0].id == grouped_light.id
+        * zone -> lights by lights.id IN zone.services[*].rid(s)
+        * 
+        * To simplify this, we store a mapping of:
+        * zone.grouped_services[0].rid -> zone.id
+        * 
+        * Here, "resource" is the zone and "service" is the grouped_service,
+        * so GroupedServices is { [group]: zone }
+        */
         if (resource.grouped_services) {
             // TODO groupedServices
             resource.grouped_services.forEach((service: ResourceRef<any>) => {

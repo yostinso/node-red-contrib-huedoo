@@ -1,7 +1,7 @@
 import { Method } from "axios";
-import dayjs from "dayjs";
 import { RulesV1Response, RulesV1ResponseItem } from "../../types/api/rules";
 import uuid from "./uuid";
+const dayjs = jest.requireActual("dayjs");
 
 let lastId = 0;
 function nextId(): string {
