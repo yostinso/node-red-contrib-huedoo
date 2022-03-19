@@ -9,16 +9,19 @@ jest.mock("dayjs", () => {
 import { Node } from "node-red";
 import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
 
-import API from "../utils/api";
+import API, { ProcessedResources } from "../utils/api";
 import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
 import { Bridge } from "../utils/types/api/bridge";
 import { RulesV1ResponseItem } from "../utils/types/api/rules";
 import { defaultRules } from "../utils/__fixtures__/api/rules";
-import { defaultResources, makeDevice } from "../utils/__fixtures__/api/resources";
-import { ExpandedResource, ExpandedServiceOwnerResource } from "../utils/types/expanded/resource";
+import { defaultResources, makeButtonGroup, makeDevice, makeLight } from "../utils/__fixtures__/api/resources";
+import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, GroupedServices } from "../utils/types/expanded/resource";
 import { EventEmitter as _EventEmitter } from "events";
 import { makeEvent } from "../utils/__fixtures__/api/event";
 import _dayjs from "dayjs";
+import { ResourceId } from "../utils/types/resources/generic";
+import { Resource } from "../utils/types/api/resource";
+import exp from "constants";
 
 const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
 const dayjs = jest.mocked(_dayjs);
@@ -347,13 +350,15 @@ describe(HueBridge, () => {
         });
 
         describe(HueBridge.prototype.subscribeToBridgeEventStream, () => {
-            beforeEach(() => {
-                jest.spyOn(bridgeNode, "pushUpdatedState").mockReturnValue();
-            });
             it("should subscribe to bridge events", () => {
                 jest.mocked(API.subscribe).mockReturnValueOnce(Promise.resolve(true));
                 bridgeNode.subscribeToBridgeEventStream();
                 expect(API.subscribe).toBeCalledWith(config, bridgeNode.handleBridgeEvent);
+            });
+        });
+        describe(HueBridge.prototype.handleBridgeEvent, () => {
+            beforeEach(() => {
+                jest.spyOn(bridgeNode, "pushUpdatedState").mockReturnValue();
             });
             it("shouldn't update state or events if the event contains no new info", () => {
                 const event = makeEvent("my_event", "update", makeDevice("new_device"));
@@ -375,7 +380,7 @@ describe(HueBridge, () => {
                 expect(bridgeNode.pushUpdatedState).not.toBeCalled();
                 expect(bridgeNode.resources).toEqual(resources);
             });
-            it.only("should update the eventing resource and send an event for an unowned resource", () => {
+            it("should update the eventing resource and send an event for an unowned resource", () => {
                 const now = dayjs();
 
                 const device = makeDevice("new_device", "Old Name");
@@ -394,6 +399,38 @@ describe(HueBridge, () => {
                         metadata: expect.objectContaining({ name: "Something New" }),
                         updated: now.format()
                     })
+                });
+            });
+            describe("if the eventing resource has a parent", () => {
+                const putExpandedResources = (bridge: HueBridge, ...resources: Resource<any>[]) => {
+                    const [expanded, grouped] = expandedResources(resources);
+                    Object.entries(expanded).forEach(([id, res]) => bridge.resources[id] = res);
+                    Object.entries(grouped).forEach(([id, grp]) => bridge.groupsOfResources[id] = grp);
+                }
+                it("should error if the parent doesn't exist", () => {
+                    const device = makeLight("my_light", "Something Old", {
+                        rid: "this_doesn't_exist",
+                        rtype: "device"
+                    });
+                    
+                    bridgeNode.resources[device.id] = device;
+                    const event = makeEvent("my_event", "update", {
+                        ...device,
+                        metadata: { ...device.metadata, name: "Something New" }
+                    });
+                    expect(() => bridgeNode.handleBridgeEvent([ event ])).toThrowError(/No resource entry/);
+                });
+                it("should not notify the resource directly", () => {
+                    const [ group, buttons ] = makeButtonGroup("Button Group");
+                    putExpandedResources(bridgeNode, group, ...buttons);
+                    // @ts-ignore
+                    console.log(bridgeNode.resources[group.id])
+                });
+                it("should notify on the parent, but with the child type", () => {
+
+                });
+                it("should clear any button states off the parent if it's a button", () => {
+
                 });
             });
         });

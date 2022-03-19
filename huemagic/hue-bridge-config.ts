@@ -9,7 +9,8 @@ import { EventUpdateResponse } from "./utils/types/api/event";
 import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
 import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
-import { isOwnedResource, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
+import { Button, isButton } from "./utils/types/resources/button";
+import { isOwnedResource, isResourceType, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, serviceOwnerResourceTypes, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
 
 export interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
@@ -175,34 +176,40 @@ class HueBridge extends NodeRedNode {
 		}
 	}
 
-	private getCachedServices<T extends OwnedResource<OwnedResourceType>>(resource: T): ExpandedOwnedServices {
-		if (isOwnedResource(resource)) {
-			let r = resource as OwnedResource<OwnedResourceType>;
-			if (r.owner) {
-				let cachedOwner: ExpandedServiceOwnerResource<ServiceOwnerResourceType> = this._resources[r.owner.rid] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>;
-				if (cachedOwner.services) {
-					return cachedOwner.services;
-				}
-			}
-		}
-		return {};
-	}
-
-	getPreviousResourceState<T extends RealResourceType>(resource: ExpandedResource<T>): ExpandedResource<T> | undefined {
+	private getPreviousResourceState<T extends RealResourceType>(resource: ExpandedResource<T>): ExpandedResource<T> | undefined {
 		let previousState: ExpandedResource<T> | undefined = undefined;
-		let ownerServices = this.getCachedServices(resource);
-		if (ownerServices[resource.type]?.[resource.id] !== undefined) {
-			previousState = ownerServices![resource.type]![resource.id];
-			if ((resource as OwnedResource<OwnedResourceType>).type == "button" && ownerServices.button !== undefined) {
-				// IS BUTTON? -> REMOVE PREVIOUS STATES
-				for (let key in ownerServices.button) {
-					delete ownerServices.button[key]
-				}
-			}
-		} else if (this._resources[resource.id]) {
+
+		/* The resource state can be stored in one of two places:
+		 * Directly in this.resources[resource.id] <--- there will always be an entry here
+		 * Inside a "parent" resource like a group in this.resources[resource.owner.rid][resource.type][resource.id]
+		 *
+		 * We use the latter preferentially if it exists, but they should be in sync.
+		 */
+		 
+
+		let parentResource = this.getParentResource(resource);
+		if (parentResource?.services?.[resource.type]?.[resource.id]) {
+			previousState = parentResource!.services![resource.type]![resource.id] as ExpandedResource<T>;
+		} else {
 			previousState = this._resources[resource.id] as ExpandedResource<T>;
 		}
+		
 		return previousState;
+	}
+
+	getParentResource(resource: ResourceResponse<RealResourceType>): ExpandedServiceOwnerResource<ServiceOwnerResourceType> | undefined {
+		if (isOwnedResource(resource) && resource.owner) {
+			let owner = this._resources[resource.owner.rid];
+			if (!owner) { throw new Error(`No resource entry for ${resource.owner.rid} even though there is an owner reference on resource ${resource.id}`); }
+			if (isExpandedServiceOwnerResource(owner)) {
+				return owner;
+			} else {
+				console.warn(`Owner ${owner.id} is not an expected owner type (${serviceOwnerResourceTypes.join(", ")})... got ${owner.type}.`);
+				return owner as ExpandedServiceOwnerResource<ServiceOwnerResourceType>;
+			}
+		} else {
+			return undefined;
+		}
 	}
 
 	handleBridgeEvent(updates: EventUpdateResponse<RealResource<any>>[]): void {
@@ -212,27 +219,40 @@ class HueBridge extends NodeRedNode {
 				let resource: ResourceResponse<RealResourceType> = event.data;
 				let previousState = this.getPreviousResourceState(resource);
 				// NO PREVIOUS STATE?
+				// TODO: Handle ADD / DELETE events
 				if (previousState === undefined) { return; }
 
-				// CHECK DIFFERENCES
 				const mergedState = mergeDeep(previousState, resource);
 
 				if (isDiff(previousState, mergedState)) {
-					if (isOwnedResource(resource) && resource.owner) {
-						let ownerServices = this.getCachedServices(resource);
-						if (ownerServices[resource.type] !== undefined) {
-							let ownedResources = (ownerServices[resource.type] || {});
-							(ownedResources[resource.id] as ExpandedResource<RealResourceType>) = mergedState;
-							this._resources[resource.id].updated = currentDateTime;
+					// Update our cached resource
+					this._resources[resource.id] = mergedState;
+					this._resources[resource.id].updated = currentDateTime;
+
+					// We should also update the expanded reference to this resource
+					let parentResource = this.getParentResource(resource);
+					if (parentResource?.services?.[resource.type]?.[resource.id]) {
+
+						if (isButton(resource) && parentResource.services.button) {
+							// Special case for Buttons... Remove the .button from all button references in the parent
+							// since they are part of a single device (like a Hue dimmer switch), and we only want to
+							// hear about the most recent event
+							Object.keys(parentResource.services.button).forEach((btnId) => {
+								delete (parentResource!.services!.button![btnId] as Button).button
+							})
 						}
 
-						// PUSH STATE
-						this.pushUpdatedState(this._resources[resource.id], resource.type);
+						/* We have to do a typecast here because we are narrowing to a _specific_
+						 * type and I don't want a type assertion for every possible device type
+						 */
+						(parentResource.services![resource.type]![resource.id] as ExpandedResource<RealResourceType>) = {
+							...mergedState,
+							updated: currentDateTime
+						};
+						// Notify on the parent, not the child
+						this.pushUpdatedState(this._resources[parentResource.id], resource.type);
 					} else {
-						this._resources[resource.id] = mergedState;
-						this._resources[resource.id].updated = currentDateTime;
-
-						// PUSH STATE
+						// If we don't have a parent to notify on, notify directly
 						this.pushUpdatedState(this._resources[resource.id], resource.type);
 					}
 				}

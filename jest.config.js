@@ -8,6 +8,7 @@ module.exports = {
   collectCoverage: true,
   testTimeout: 2000,
   restoreMocks: true,
+  testMatch: [ "**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts" ],
   globals: {
     "ts-jest": {
       tsconfig: "tsconfig.json"

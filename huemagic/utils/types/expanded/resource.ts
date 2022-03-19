@@ -1,6 +1,7 @@
 import { all } from "async";
 import { group } from "console";
 import { Resource, ResourceResponse } from "../api/resource";
+import { Button } from "../resources/button";
 import { isOwnedResourceType, isServiceOwnerType, OwnedResource, OwnedResourceType, RealResourceType, ResourceId, ResourceRef, ServiceOwnerResource, ServiceOwnerResourceType } from "../resources/generic";
 
 /*
@@ -23,7 +24,7 @@ export interface ExpandedServiceOwnerResource<T extends ServiceOwnerResourceType
     owner?: Resource<T>
     services?: {
         [T in OwnedResourceType]+?: {
-            [id: ResourceId]: Resource<T>
+            [id: ResourceId]: OwnedResource<T>
         }
     }
 }
@@ -53,13 +54,11 @@ function expandServiceOwnerResourceResponse(resource: ServiceOwnerResource<any>,
     if (resource.services) {
         // Expand the services
         let expandedServices: { [type in OwnedResourceType]+?: { [id: ResourceId]: ExpandedResource<any> } } = {};
-        Object.entries(resource.services).forEach(([ type, services ]) => {
-            if (isOwnedResourceType(type)) { // Runtime validation that object key is an OwnedResourceType since it can only be typed as string
-                let servicesForType = expandedServices[type] || {};
-                Object.entries(services).forEach(([id, ref]) => {
-                    servicesForType[id] = allResources[ref.rid]; // ! means "I promise I just made this an object and it's not undefined"
-                });
-                expandedServices[type] = servicesForType;
+        resource.services.forEach(({ rid, rtype }) => {
+            if (isOwnedResourceType(rtype)) { // Runtime validation that object key is an OwnedResourceType since it can only be typed as string
+                let servicesForType = expandedServices[rtype] || {};
+                servicesForType[rid] = allResources[rid]; // ! means "I promise I just made this an object and it's not undefined"
+                expandedServices[rtype] = servicesForType;
             }
         });
 

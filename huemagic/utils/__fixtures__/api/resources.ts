@@ -1,4 +1,5 @@
 import { ResourceResponse } from "../../types/api/resource";
+import { Button, ButtonControlIdType, ButtonEventType } from "../../types/resources/button";
 import { Device } from "../../types/resources/device";
 import { OwnedResourceType, RealResourceType, ResourceRef } from "../../types/resources/generic";
 import { Light } from "../../types/resources/light";
@@ -111,6 +112,62 @@ export function makeDevice(id: string, deviceName?: string, services?: ResourceR
         metadata,
         ...extras
     };
+}
+
+const buttonTemplate: Button = {
+    "id": uuid(),
+    "id_v1": "/sensors/50",
+    /*
+    "button": {
+        "last_event": "short_release"
+    },
+    */
+    "metadata": {
+        "control_id": 0
+    },
+    "owner": {
+        "rid": uuid(),
+        "rtype": "device"
+    },
+    "type": "button"
+};
+
+interface ButtonGroup extends Device {
+    services: ResourceRef<OwnedResourceType>[]
+}
+
+export function makeButtonGroup(name: string, count: ButtonControlIdType = 4): [ ButtonGroup, Button[] ] {
+    let group = {
+        ...makeDevice(uuid(), name, []),
+        services: []
+    };
+    let btns = [];
+    for (let i = 0; i < count; i++) {
+        let btn = makeButton(i as ButtonControlIdType);
+        btns.push(btn);
+        addButtonToGroup(btn, group);
+    }
+    return [ group, btns ];
+}
+
+export function makeButton(control_id: ButtonControlIdType  = 0, last_event?: ButtonEventType): Button {
+    let button = last_event ? { last_event } : undefined;
+    return {
+        ...buttonTemplate,
+        button,
+        metadata: { ...buttonTemplate.metadata, control_id }
+    }
+}
+
+export function addButtonToGroup(button: Button, group: ButtonGroup) {
+    group.services.push({
+        rtype: "button",
+        rid: button.id
+    });
+    button.owner = {
+        rtype: "device",
+        rid: group.id
+    }
 }
 
 

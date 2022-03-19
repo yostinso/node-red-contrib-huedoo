@@ -8,7 +8,7 @@ export interface ResourceRef<T extends OwnedResourceType> {
     rtype: T;
 }
 
-const serviceOwnerResourceTypes = [ "device", "room", "zone", "bridge_home" ] as const;
+export const serviceOwnerResourceTypes = [ "device", "room", "zone", "bridge_home" ] as const;
 export type ServiceOwnerResourceType  = (typeof serviceOwnerResourceTypes)[number];
 export function isServiceOwnerType(type: string): type is ServiceOwnerResourceType {
     return serviceOwnerResourceTypes.includes(type as ServiceOwnerResourceType);
