@@ -8,3 +8,4 @@
 *.paw
 *.log
 coverage/**
+dist/
