@@ -150,12 +150,14 @@ export function makeButtonGroup(name: string, count: ButtonControlIdType = 4): [
     return [ group, btns ];
 }
 
-export function makeButton(control_id: ButtonControlIdType  = 0, last_event?: ButtonEventType): Button {
+export function makeButton(control_id: ButtonControlIdType  = 0, last_event?: ButtonEventType, extras: Partial<Button> = {}): Button {
     let button = last_event ? { last_event } : undefined;
     return {
         ...buttonTemplate,
+        id: uuid(),
         button,
-        metadata: { ...buttonTemplate.metadata, control_id }
+        metadata: { ...buttonTemplate.metadata, control_id },
+        ...extras,
     }
 }
 

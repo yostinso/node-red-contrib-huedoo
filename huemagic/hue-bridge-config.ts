@@ -185,8 +185,6 @@ class HueBridge extends NodeRedNode {
 		 *
 		 * We use the latter preferentially if it exists, but they should be in sync.
 		 */
-		 
-
 		let parentResource = this.getParentResource(resource);
 		if (parentResource?.services?.[resource.type]?.[resource.id]) {
 			previousState = parentResource!.services![resource.type]![resource.id] as ExpandedResource<T>;

@@ -17,7 +17,7 @@ describe(expandedResources, () => {
         expect(group.services.sort()).toEqual(buttonRefs);
     })
     it("should expand the services on a group", () => {
-        let [ group, buttons ] = makeButtonGroup("Button Group");
+        let [ group, buttons ] = makeButtonGroup("Button Group", 4);
         let [ expanded, grouped ] = expandedResources([ group, ...buttons ]);
 
         const expandedButtons = buttons.reduce((memo, btn) => {
@@ -25,9 +25,7 @@ describe(expandedResources, () => {
             return memo;
         }, {} as { [id: string]: Button });
         
-        // TODO This isn't working; I expect 4 entries not one
-        expect(false).toBe(true);
-        console.log(expanded[group.id]);
+        expect(Object.keys(expandedButtons)).toHaveLength(4);
         expect(expanded[group.id]).toEqual(expect.objectContaining({
             services: { button: expect.objectContaining(expandedButtons) }
         }));

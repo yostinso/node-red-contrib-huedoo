@@ -19,9 +19,10 @@ import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, Grou
 import { EventEmitter as _EventEmitter } from "events";
 import { makeEvent } from "../utils/__fixtures__/api/event";
 import _dayjs from "dayjs";
-import { ResourceId } from "../utils/types/resources/generic";
-import { Resource } from "../utils/types/api/resource";
+import { ResourceId, ServiceOwnerResourceType } from "../utils/types/resources/generic";
+import { Resource, ServiceOwnerResourceResponse } from "../utils/types/api/resource";
 import exp from "constants";
+import { Button } from "../utils/types/resources/button";
 
 const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
 const dayjs = jest.mocked(_dayjs);
@@ -420,17 +421,77 @@ describe(HueBridge, () => {
                     });
                     expect(() => bridgeNode.handleBridgeEvent([ event ])).toThrowError(/No resource entry/);
                 });
-                it("should not notify the resource directly", () => {
-                    const [ group, buttons ] = makeButtonGroup("Button Group");
+                it("should notify the parent, not the resource directly", () => {
+                    const [ group, buttons ] = makeButtonGroup("Button Group", 4);
                     putExpandedResources(bridgeNode, group, ...buttons);
-                    // @ts-ignore
-                    console.log(bridgeNode.resources[group.id])
-                });
-                it("should notify on the parent, but with the child type", () => {
 
+                    const button = buttons[0];
+                    const event = makeEvent("my_event", "update", {
+                        ...button,
+                        button: { last_event: "initial_press" }
+                    });
+                    
+                    bridgeNode.handleBridgeEvent([ event ]);
+                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
+                    expect(bridgeNode.pushUpdatedState).toBeCalledWith(expect.objectContaining({
+                        id: group.id,
+                        services: expect.objectContaining({
+                            button: expect.objectContaining({
+                                [buttons[0].id]: expect.anything(),
+                                [buttons[1].id]: expect.anything(),
+                                [buttons[2].id]: expect.anything(),
+                                [buttons[3].id]: expect.anything(),
+                            })
+                        })
+                    }), "button");
                 });
-                it("should clear any button states off the parent if it's a button", () => {
+                it("should keep only the pressed button state and clear others off the parent if it's a button", () => {
+                    const [ group, buttons ] = makeButtonGroup("Button Group", 4);
+                    buttons.forEach((btn) => { btn.button = { last_event: "initial_press" }; })
+                    putExpandedResources(bridgeNode, group, ...buttons);
 
+                    const button = buttons[0];
+                    const event = makeEvent("my_event", "update", {
+                        ...button,
+                        button: { last_event: "short_release"}
+                    });
+                    
+                    bridgeNode.handleBridgeEvent([ event ]);
+                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
+                    let expandedGroup = bridgeNode.resources[group.id] as ExpandedServiceOwnerResource<"device">;
+                    expect(bridgeNode.pushUpdatedState).toBeCalledWith(expandedGroup, "button");
+                    
+                    expect(expandedGroup.services?.button).toEqual(expect.objectContaining({
+                        [buttons[0].id]: expect.objectContaining({ button: { last_event: "short_release" } }),
+                        [buttons[1].id]: expect.not.objectContaining({ button: expect.anything() }),
+                        [buttons[2].id]: expect.not.objectContaining({ button: expect.anything() }),
+                        [buttons[3].id]: expect.not.objectContaining({ button: expect.anything() }),
+                    }))
+                });
+                it("should warn but continue if this doesn't seem like an expected owned type", () => {
+                    jest.spyOn(console, "warn").mockReturnValueOnce();
+                    const [ group, buttons ] = makeButtonGroup("Button Group", 4);
+                    putExpandedResources(bridgeNode, group, ...buttons);
+
+                    bridgeNode.resources[group.id].type = "motion";
+                    
+                    const button = buttons[0];
+                    const event = makeEvent("my_event", "update", {
+                        ...button,
+                        button: { last_event: "short_release" }
+                    });
+                    bridgeNode.handleBridgeEvent([ event ]);
+                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
+
+                    expect(console.warn).toBeCalledWith(expect.stringContaining("not an expected owner type"));
+
+                    let expandedGroup = bridgeNode.resources[group.id] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>; // This is a lie; it's a "motion"
+                    expect(expandedGroup.services?.button).toEqual(expect.objectContaining({
+                        [buttons[0].id]: expect.objectContaining({ button: { last_event: "short_release" } }),
+                        [buttons[1].id]: expect.not.objectContaining({ button: expect.anything() }),
+                        [buttons[2].id]: expect.not.objectContaining({ button: expect.anything() }),
+                        [buttons[3].id]: expect.not.objectContaining({ button: expect.anything() }),
+                    }))
                 });
             });
         });
