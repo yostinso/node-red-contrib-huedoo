@@ -1,3 +1,4 @@
+import { isError } from "util";
 import { RealResource } from "../resources/generic";
 import { BridgeConfig, ApiResponseV1, ApiRequestV1 } from "./api";
 
@@ -111,6 +112,22 @@ export interface BridgeV1Response extends ApiResponseV1 {
 		}
 	}
 };
+
+type BridgeConfigV1ResponseSuccess = {
+	success: { [path: string]: number|boolean|string }
+}
+export type BridgeConfigV1ResponseError = {
+	error: {
+		type: number,
+		address: string,
+		description: string
+	}
+}
+type BridgeConfigV1ResponseItem = BridgeConfigV1ResponseSuccess | BridgeConfigV1ResponseError;
+export type BridgeConfigV1Response = (BridgeConfigV1ResponseItem)[]
+export function isBridgeConfigV1ResponseError(item: BridgeConfigV1ResponseItem): item is BridgeConfigV1ResponseError {
+	return "error" in item;
+}
 
 export interface Bridge extends RealResource<"bridge">, Omit<BridgeV1Response, "bridgeid"> {
 	

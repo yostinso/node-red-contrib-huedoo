@@ -1,13 +1,13 @@
 import { APIStaticInterface } from "../api";
 import { BridgeConfigWithId } from "../types/api/api";
-import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response, ConfigResponse } from "../types/api/bridge";
+import { BridgeAutoupdateRequest, BridgeConfigV1Response, BridgeRequest, BridgeV1Response, ConfigResponse } from "../types/api/bridge";
 import { EventUpdateResponse } from "../types/api/event";
 import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "../types/api/resource";
 import { RulesRequest, RulesV1Response } from "../types/api/rules";
 import { RealResource, RealResourceType } from "../types/resources/generic";
-import { defaultBridgeConfig, makeConfig } from "../__fixtures__/api/config";
+import { defaultBridgeConfig } from "../__fixtures__/api/config";
 import { defaultResources } from "../__fixtures__/api/resources";
-import { defaultRules, makeRules } from "../__fixtures__/api/rules";
+import { defaultRules } from "../__fixtures__/api/rules";
 
 function staticImplements<T>() {
     return <U extends T>(constructor: U) => {constructor};
@@ -40,9 +40,15 @@ class mockAPI {
             return Promise.resolve(defaultBridgeConfig)
         }
     )
-    static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
-        throw new Error("not implemented");
-    }
+    static setBridgeUpdate = jest.fn().mockImplementation(
+        (request: BridgeAutoupdateRequest): Promise<BridgeConfigV1Response> => {
+            const response: BridgeConfigV1Response = [
+                { success: { "/config/swupdate2/checkforupdate": true } },
+                { success: { "/config/swupdate2/install": true } },
+            ];
+            return Promise.resolve(response);
+        }
+    )
     static getAllResources = jest.fn().mockImplementation(
         (request: AllResourcesRequest): Promise<ResourceResponse<any>[]> => {
             return Promise.resolve(defaultResources);

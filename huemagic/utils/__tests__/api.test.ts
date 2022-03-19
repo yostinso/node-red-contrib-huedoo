@@ -20,6 +20,7 @@ const config = {
 
 beforeEach(() => {
     axiosRequestMock.mockReset();
+    axiosRequestMock.mockResolvedValue(true);
 });
 
 describe(API, () => {
@@ -62,6 +63,7 @@ describe(API, () => {
         });
         describe(API.setBridgeUpdate, () => {
             it("should set the swupdate object", () => {
+                axiosRequestMock.mockResolvedValue([])
                 const promise = API.setBridgeUpdate({
                     config,
                     data: {
@@ -77,6 +79,18 @@ describe(API, () => {
                 }));
                 return promise;
             });
+            it("should reject on error responses", () => {
+                const error = { error: { type: 1, address: "example", description: "example" } };
+                axiosRequestMock.mockResolvedValue([error]);
+                const promise = API.setBridgeUpdate({
+                    config,
+                    data: {
+                        swupdate2: { checkforupdate: true, install: true }
+                    }
+                });
+
+                return expect(promise).rejects.toEqual([error]);
+            })
         });
         describe(API.init, () => {
             it("should reject if you manage to give it a bad config", () => {

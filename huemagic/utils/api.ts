@@ -1,14 +1,13 @@
 import axios, { AxiosRequestConfig, Method } from "axios";
-import https from 'https';
 import EventSource from 'eventsource';
-import { RealResource, RealResourceType, ResourceId, SpecialResource, SpecialResourceType } from "./types/resources/generic";
-import { BridgeAutoupdateRequest, BridgeRequest, BridgeV1Response, ConfigRequest, ConfigResponse } from "./types/api/bridge";
-import { RulesRequest, RulesV1Response } from "./types/api/rules";
-import { AllResourcesRequest, Resource, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
+import https from 'https';
 import { ApiRequestV1, ApiRequestV2, ApiResponseData, ApiResponseV1, ApiResponseV2, BridgeConfigWithId } from "./types/api/api";
+import { BridgeAutoupdateRequest, BridgeConfigV1Response, BridgeConfigV1ResponseError, BridgeRequest, BridgeV1Response, ConfigRequest, ConfigResponse, isBridgeConfigV1ResponseError } from "./types/api/bridge";
 import { EventUpdateResponse } from "./types/api/event";
+import { AllResourcesRequest, ResourceRequest, ResourceResponse, ResourcesRequest } from "./types/api/resource";
+import { RulesRequest, RulesV1Response } from "./types/api/rules";
 import { ExpandedResource } from "./types/expanded/resource";
-import { stat } from "fs";
+import { RealResource, RealResourceType, ResourceId, SpecialResource, SpecialResourceType } from "./types/resources/generic";
 
 export type ProcessedResources = { [ id: ResourceId ]: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType> };
 export type GroupsOfResources = { [groupedServiceId: ResourceId ]: string[] };
@@ -50,7 +49,6 @@ function makeAxiosRequestV2<T extends ApiResponseData, D = any>(request: ApiRequ
 	};
 	return axios.request<D, ApiResponseV2<T>>(axiosRequest).then((response) => {
 		if (response.errors) {
-			//return Promise.reject(`Error from Hue API: ${response.errors.join(", ")}`);
 			throw new Error(`Error from Hue API: ${response.errors.join(", ")}`);
 		}
 		return response.data;
@@ -61,7 +59,7 @@ export interface APIStaticInterface {
 	init(config: ConfigRequest): Promise<ConfigResponse>;
 	rules(request: RulesRequest): Promise<RulesV1Response>;
 	config(request: BridgeRequest): Promise<BridgeV1Response>;
-	setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response>;
+	setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeConfigV1Response>;
 	getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<any>[]>;
 	getResources<T extends RealResourceType>(request: ResourcesRequest<T>): Promise<ResourceResponse<T>[]>;
 	getResource<R extends RealResourceType, T extends ResourceRequest<R>>(request: T): Promise<ResourceResponse<R>>;
@@ -105,9 +103,14 @@ class API {
 		const req = { ...request, method: "GET" } as const;
 		return makeAxiosRequestV1(req, `config`);
 	}
-	static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeV1Response> {
+	static setBridgeUpdate(request: BridgeAutoupdateRequest): Promise<BridgeConfigV1Response> {
 		const req = { ...request, method: "PUT" } as const;
-		return makeAxiosRequestV1(req, `config`)
+		return makeAxiosRequestV1<BridgeConfigV1Response, ApiRequestV1WithMethod<BridgeAutoupdateRequest["data"]>>(req, `config`)
+		.then((response) => {
+			let errors = response.filter(isBridgeConfigV1ResponseError);
+			if (errors.length > 0) { return Promise.reject(errors); }
+			return response;
+		});
 	}
 	static getAllResources(request: AllResourcesRequest): Promise<ResourceResponse<RealResourceType>[]> {
 		const req = { ...request, method: "GET" } as const;
