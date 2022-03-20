@@ -6,31 +6,32 @@ jest.mock("dayjs", () => {
     return jest.fn().mockImplementation((...args) => dayjs(...args));
 });
 
-import { Node } from "node-red";
-import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
-
-import API, { ProcessedResources } from "../utils/api";
-import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
-import { Bridge } from "../utils/types/api/bridge";
-import { RulesV1ResponseItem } from "../utils/types/api/rules";
-import { defaultRules } from "../utils/__fixtures__/api/rules";
-import { defaultResources, makeButtonGroup, makeDevice, makeLight } from "../utils/__fixtures__/api/resources";
-import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, GroupedServices } from "../utils/types/expanded/resource";
-import { EventEmitter as _EventEmitter } from "events";
-import { makeEvent } from "../utils/__fixtures__/api/event";
 import _dayjs from "dayjs";
-import { ResourceId, ServiceOwnerResourceType } from "../utils/types/resources/generic";
-import { Resource, ServiceOwnerResourceResponse } from "../utils/types/api/resource";
-import exp from "constants";
-import { Button } from "../utils/types/resources/button";
+import { EventEmitter as _EventEmitter } from "events";
+import { Node } from "node-red";
+import { resourceUsage } from "process";
+import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
+import API from "../utils/api";
+import { Bridge } from "../utils/types/api/bridge";
+import { Resource } from "../utils/types/api/resource";
+import { RulesV1ResponseItem } from "../utils/types/api/rules";
+import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource } from "../utils/types/expanded/resource";
+import { ServiceOwnerResourceType } from "../utils/types/resources/generic";
+import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
+import { makeEvent } from "../utils/__fixtures__/api/event";
+import { defaultResources, makeButtonGroup, makeDevice, makeLight } from "../utils/__fixtures__/api/resources";
+import { defaultRules } from "../utils/__fixtures__/api/rules";
+
 
 const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
 const dayjs = jest.mocked(_dayjs);
 
 const nodeLog = jest.fn().mockName("nodeLog");
+const nodeWarn = jest.fn().mockName("nodeWarn");
 
 const node: Node = {
-    log: nodeLog
+    log: nodeLog,
+    warn: nodeWarn
 } as unknown as Node;
 
 
@@ -56,9 +57,19 @@ function mockInstantTimeout() {
     return mockTimeout;
 }
 
+type FunctionPropertyNames<T> = { [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never }[keyof T] & string;
+function mockRunMethodOnceAndThenNoop<T extends {}, M extends FunctionPropertyNames<Required<T>>>(object: T, method: M) {
+    const orig = (object as any)[method];
+    const mock = jest.spyOn(object, method);
+    mock.mockImplementationOnce(orig);
+    mock.mockResolvedValue(true as any);
+    return mock;
+}
+
 describe(HueBridge, () => {
     beforeEach(() => {
         nodeLog.mockClear();
+        nodeWarn.mockClear();
     });
     it("should be constructable", () => {
         expect(() => new HueBridge(node, config)).not.toThrow();
@@ -73,13 +84,10 @@ describe(HueBridge, () => {
         describe(HueBridge.prototype.start, () => {
             it("should retry a connection on connection failure", async () => {
                 jest.useFakeTimers();
-                const mockTimeout = mockInstantTimeout();
+                mockInstantTimeout();
 
                 // Mock .start to just resolve(true) after running the first time
-                const origStart = bridgeNode.start;
-                const mockStart = jest.spyOn(bridgeNode, "start");
-                mockStart.mockImplementationOnce(origStart);
-                mockStart.mockResolvedValueOnce(true);
+                const mockStart = mockRunMethodOnceAndThenNoop(bridgeNode, "start");
 
                 // Trigger an error so we retry
                 jest.mocked(API.init).mockRejectedValueOnce("error message");
@@ -95,6 +103,30 @@ describe(HueBridge, () => {
                 jest.mocked(API.init).mockRejectedValueOnce("error message");
                 const result = expect(bridgeNode.start()).resolves.toBe(false);
                 return result;
+            });
+            it("should fetch all resources", async () => {
+                const getAllResourcesMock = jest.spyOn(bridgeNode, "getAllResources");
+                await bridgeNode.start();
+                expect(getAllResourcesMock).toBeCalled();
+            })
+            it("should emit initial resources", async () => {
+                const pushStateMock = jest.spyOn(bridgeNode, "pushUpdatedState")
+                pushStateMock.mockClear();
+
+                await bridgeNode.start();
+                pushStateMock.mockReturnValue();
+                let expectedResourceIds = [
+                    ...defaultResources.map((r) => r.id),
+                    "bridge",
+                    ...Object.keys(defaultRules).map((id) => `rule_${id}`)
+                ].sort();
+                let emittedResourceIds = pushStateMock.mock.calls.map((c) => c[0].id).sort();
+                expect(emittedResourceIds).toEqual(expectedResourceIds);
+            });
+            it("should subscribe to events and kick off firmware updates", async () => {
+                await bridgeNode.start();
+                expect(API.subscribe).toBeCalled();
+                expect(API.setBridgeUpdate).toBeCalled();
             })
         })
 
@@ -493,6 +525,116 @@ describe(HueBridge, () => {
                         [buttons[3].id]: expect.not.objectContaining({ button: expect.anything() }),
                     }))
                 });
+            });
+        });
+
+        describe(HueBridge.prototype.keepUpdated, () => {
+            it("should do nothing if updates are disabled", () => {
+                bridgeNode = new HueBridge(node, {
+                    ...config,
+                    disableupdates: true
+                });
+                jest.spyOn(bridgeNode, "subscribeToBridgeEventStream").mockReturnValue();
+                bridgeNode.keepUpdated();
+                expect(bridgeNode.subscribeToBridgeEventStream).not.toBeCalled();
+            });
+            it("should subscribe to events if not disabled", () => {
+                jest.spyOn(bridgeNode, "subscribeToBridgeEventStream").mockReturnValue();
+                bridgeNode.keepUpdated();
+                expect(bridgeNode.subscribeToBridgeEventStream).toBeCalled();
+            });
+        });
+
+        describe(HueBridge.prototype.autoUpdateFirmware, () => {
+            it("should do nothing if config.autoupdates === false", () => {
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: false });
+                const promise = bridgeNode.autoUpdateFirmware();
+                expect(jest.mocked(API.setBridgeUpdate)).not.toBeCalled();
+                return promise;
+            });
+            it("should make an API call to update firmware if config.autoupdates === true", () => {
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: true });
+                const promise = bridgeNode.autoUpdateFirmware();
+                expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
+                return promise;
+            });
+            it("should make an API call to update firmware if config.autoupdates === undefined", () => {
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: undefined });
+                const promise = bridgeNode.autoUpdateFirmware();
+                expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
+                return promise;
+            });
+
+            it("should warn and retry failure", async () => {
+                jest.useFakeTimers();
+                mockInstantTimeout();
+                const error = { error: { type: 1, address: "example", description: "error message" } };
+                jest.mocked(API.setBridgeUpdate).mockRejectedValueOnce([ error ]);
+
+                // Mock .autoUpdateFirmware to just resolve(true) after running the first time
+                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeNode, "autoUpdateFirmware");
+
+                // Trigger an error so we retry
+                await bridgeNode.autoUpdateFirmware();
+                expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
+                expect(nodeWarn).toBeCalledTimes(2);
+                expect(nodeWarn).toBeCalledWith(expect.stringContaining("Error response"));
+                expect(nodeWarn).toBeCalledWith("error message");
+
+                // It should also have started tracking the timeout
+                expect(bridgeNode.firmwareUpdateTimeout).not.toBeUndefined();
+
+                jest.useRealTimers();
+            });
+            it("should not retry if not enabled", () => {
+                bridgeNode.enabled = false;
+                const error = { error: { type: 1, address: "example", description: "error message" } };
+                jest.mocked(API.setBridgeUpdate).mockRejectedValueOnce([ error ]);
+                const result = expect(bridgeNode.autoUpdateFirmware()).resolves.toBe(false);
+                return result;
+            });
+            it("should schedule a retry for 12 hours later on success", async () => {
+                jest.useFakeTimers();
+                mockInstantTimeout();
+
+                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeNode, "autoUpdateFirmware");
+
+                await bridgeNode.autoUpdateFirmware();
+                expect(setTimeout).toBeCalledWith(expect.anything(), 12*3600*1000);
+                expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
+
+                // It should also have started tracking the timeout
+                expect(bridgeNode.firmwareUpdateTimeout).not.toBeUndefined();
+
+                jest.clearAllTimers();
+                jest.useRealTimers();
+            });
+            it("should clear any existing update timers", async () => {
+                jest.useFakeTimers();
+                mockInstantTimeout();
+
+                const orig = bridgeNode.autoUpdateFirmware;
+                const mockAutoUpdateFirmware = jest.spyOn(bridgeNode, "autoUpdateFirmware");
+
+                // Run once to set firmwareUpdateTimeout
+                mockAutoUpdateFirmware.mockImplementationOnce(orig);
+                mockAutoUpdateFirmware.mockResolvedValueOnce(true);
+                await bridgeNode.autoUpdateFirmware();
+                expect(setTimeout).toBeCalledWith(expect.anything(), 12*3600*1000);
+                expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
+                let timeout = bridgeNode.firmwareUpdateTimeout;
+                expect(timeout).not.toBeUndefined();
+
+                // Run again to prove we call clearTimeout
+                jest.spyOn(global, "clearTimeout").mockClear();
+                mockAutoUpdateFirmware.mockImplementationOnce(orig);
+                mockAutoUpdateFirmware.mockResolvedValueOnce(true);
+                await bridgeNode.autoUpdateFirmware();
+                expect(clearTimeout).toHaveBeenCalledTimes(1);
+                expect(clearTimeout).toHaveBeenCalledWith(timeout)
+
+                jest.clearAllTimers();
+                jest.useRealTimers();
             });
         });
     });

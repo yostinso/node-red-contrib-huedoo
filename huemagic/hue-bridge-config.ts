@@ -4,7 +4,7 @@ import * as NodeRed from "node-red";
 import NodeRedNode from "./ES6Node";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
-import { Bridge } from "./utils/types/api/bridge";
+import { Bridge, isBridgeConfigV1ResponseError } from "./utils/types/api/bridge";
 import { EventUpdateResponse } from "./utils/types/api/event";
 import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
@@ -37,7 +37,8 @@ class HueBridge extends NodeRedNode {
 	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
 	private readonly events: EventEmitter;
 	private patchQueue: object = {};
-	private firmwareUpdateTimeout?: NodeJS.Timeout;
+	private _firmwareUpdateTimeout?: NodeJS.Timeout;
+	public get firmwareUpdateTimeout() { return this._firmwareUpdateTimeout; }
 
 	// RESOURCE ID PATTERN
 	static readonly validResourceID = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/gi;
@@ -263,11 +264,11 @@ class HueBridge extends NodeRedNode {
 		API.subscribe(this.config, this.handleBridgeEvent);
 	}
 
-	autoUpdateFirmware() {
+	autoUpdateFirmware(): Promise<boolean> {
 		if (this.config.autoupdates === true || this.config.autoupdates === undefined) {
-			if (this.firmwareUpdateTimeout !== undefined) { clearTimeout(this.firmwareUpdateTimeout); }
+			if (this._firmwareUpdateTimeout !== undefined) { clearTimeout(this._firmwareUpdateTimeout); }
 
-			API.setBridgeUpdate({
+			return API.setBridgeUpdate({
 				config: this.config,
 				data: {
 					swupdate2: {
@@ -275,19 +276,31 @@ class HueBridge extends NodeRedNode {
 						install: true
 					}
 				}
-			}).then((status) => {
+			}).then(() => {
 				// SUCCESS // TRY AGAIN IN 12H
 				if (this.enabled) {
-					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
+					this._firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
 				}
+				return true;
 			})
 			.catch((error) => {
-				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
-				if (this.enabled) {
-					this.firmwareUpdateTimeout = setTimeout(() => this.autoUpdateFirmware(), 60000 * 720);
+				this.warn("Error response updating checkforupdate / autoinstall");
+				if (Array.isArray(error)) {
+					this.warn(
+						error.filter(isBridgeConfigV1ResponseError).map((e) => e.error.description).join("\n")
+					);
 				}
+				if (this.enabled) {
+					return new Promise((resolve) => {
+						this._firmwareUpdateTimeout = setTimeout(() => resolve(this.autoUpdateFirmware()), 5000);
+					})
+				} else {
+					return Promise.resolve(false);
+				}
+				// NO UPDATES AVAILABLE // TRY AGAIN IN 12H
 			});
 		}
+		return Promise.resolve(false);
 	}
 
 	pushUpdatedState(resource: ExpandedResource<RealResourceType> | SpecialResource<SpecialResourceType>, updatedType: ResourceType, suppressMessage: boolean = false): void {

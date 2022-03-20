@@ -66,7 +66,7 @@ class mockAPI {
     )
     static subscribe = jest.fn().mockImplementation(
         (config: BridgeConfigWithId, callback: (data: EventUpdateResponse<RealResource<any>>[]) => void) => {
-            throw new Error("not implemented");
+            return Promise.resolve(true);
         }
     )
 
