@@ -39,7 +39,7 @@ interface Patch {
 	version: number;
 }
 
-class HueBridge extends NodeRedNode {
+export class HueBridgeConfig extends NodeRedNode {
     private readonly config: HueBridgeDef;
 	private readonly RED: NodeRed.NodeAPI;
 	public enabled: boolean = true;
@@ -821,14 +821,12 @@ module.exports = (RED: NodeRed.NodeAPI) {
 };
 	*/
 
-export { HueBridge };
-
 export default function (RED: NodeRed.NodeAPI) {
 	RED.nodes.registerType(
-		"hue-bridge",
+		"hue-bridge-config",
 		function (this: NodeRed.Node, config: HueBridgeDef) {
 			RED.nodes.createNode(this, config);
-			return new HueBridge(this, config, RED);
+			return new HueBridgeConfig(this, config, RED);
 		}
 	)
 }
