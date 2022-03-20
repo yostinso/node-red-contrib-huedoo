@@ -8,9 +8,11 @@ import { Bridge, isBridgeConfigV1ResponseError } from "./utils/types/api/bridge"
 import { EventUpdateResponse } from "./utils/types/api/event";
 import { ResourceResponse } from "./utils/types/api/resource";
 import { Rule } from "./utils/types/api/rules";
-import { ExpandedOwnedServices, ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
+import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
 import { Button, isButton } from "./utils/types/resources/button";
-import { isOwnedResource, isResourceType, isServiceOwnerResource, OwnedResource, OwnedResourceType, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, serviceOwnerResourceTypes, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
+import { isOwnedResource, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, serviceOwnerResourceTypes, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
+import { Request, Response, ParamsDictionary, Query, NextFunction } from "express-serve-static-core";
+import { queue as FastQ } from "fastq";
 
 export interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
@@ -27,8 +29,19 @@ interface UpdatedStateEvent {
 	suppressMessage: boolean
 }
 
+type Req = Request<ParamsDictionary, any, any, Query, Record<string, any>>;
+type Res = Response<any, Record<string, any>>
+
+interface Patch {
+	type: string;
+	id: string;
+	patch: object;
+	version: number;
+}
+
 class HueBridge extends NodeRedNode {
     private readonly config: HueBridgeDef;
+	private readonly RED: NodeRed.NodeAPI;
 	public enabled: boolean = true;
 	private _resources: ProcessedResources = {};
 	public get resources() { return this._resources; } // should be sealed, but isn't for testability
@@ -36,17 +49,62 @@ class HueBridge extends NodeRedNode {
 	public get groupsOfResources() { return this._groupsOfResources; } // should be sealed, but isn't for testability
 	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
 	private readonly events: EventEmitter;
-	private patchQueue: object = {};
+	private patchQueue?: FastQ<Patch>;
 	private _firmwareUpdateTimeout?: NodeJS.Timeout;
 	public get firmwareUpdateTimeout() { return this._firmwareUpdateTimeout; }
 
 	// RESOURCE ID PATTERN
 	static readonly validResourceID = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/gi;
 
-    constructor(node: NodeRed.Node, config: HueBridgeDef) {
+    constructor(node: NodeRed.Node, config: HueBridgeDef, RED: NodeRed.NodeAPI) {
 		super(node); // become a Node!
         this.config = config;
 		this.events = new EventEmitter();
+		this.RED = RED;
+
+		//this.init();
+	}
+
+	init() {
+		this.on("close", this.shutdown);
+		this.start();
+		this.registerNodeRedEndpoints();
+		//this.createPatchQueue();
+	}
+
+	registerNodeRedEndpoints() {
+		//RequestHandlerParams<P, ResBody, ReqBody, ReqQuery, Locals>
+		this.RED.httpAdmin.get("/hue/bridges", this.getBridges);
+		this.RED.httpAdmin.get("/hue/name", this.getBridgeName);
+		this.RED.httpAdmin.get("/hue/register", this.registerWithBridge);
+		this.RED.httpAdmin.get("/hue/resources", this.getResources);
+	}
+	getBridges(req: Req, res: Res, next: NextFunction): void {
+		throw new Error("Not implemented");
+	}
+	getBridgeName(req: Req, res: Res, next: NextFunction): void {
+		throw new Error("Not implemented");
+	}
+	registerWithBridge(req: Req, res: Res, next: NextFunction): void {
+		throw new Error("Not implemented");
+	}
+	getResources(req: Req, res: Res, next: NextFunction): void {
+		throw new Error("Not implemented");
+	}
+
+	shutdown() {
+		this.log("Shutting down...");
+		this.enabled = false;
+		this.log("  Unsubscribing from bridge events...");
+		API.unsubscribe(this.config);
+		
+		this.log("  Unregistering listeners...");
+		this.events.removeAllListeners();
+		
+		if (this.firmwareUpdateTimeout) { clearTimeout(this.firmwareUpdateTimeout); }
+
+		// TODO
+		// this.patchQueue.kill();
 	}
 
 	start(): Promise<boolean> {
@@ -770,7 +828,7 @@ export default function (RED: NodeRed.NodeAPI) {
 		"hue-bridge",
 		function (this: NodeRed.Node, config: HueBridgeDef) {
 			RED.nodes.createNode(this, config);
-			return new HueBridge(this, config);
+			return new HueBridge(this, config, RED);
 		}
 	)
 }

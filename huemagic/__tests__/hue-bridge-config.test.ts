@@ -8,8 +8,7 @@ jest.mock("dayjs", () => {
 
 import _dayjs from "dayjs";
 import { EventEmitter as _EventEmitter } from "events";
-import { Node } from "node-red";
-import { resourceUsage } from "process";
+import { Node, NodeAPI } from "node-red";
 import { HueBridge, HueBridgeDef } from "../hue-bridge-config";
 import API from "../utils/api";
 import { Bridge } from "../utils/types/api/bridge";
@@ -65,6 +64,9 @@ function mockRunMethodOnceAndThenNoop<T extends {}, M extends FunctionPropertyNa
     mock.mockResolvedValue(true as any);
     return mock;
 }
+const RED: NodeAPI = jest.fn().mockImplementation(() => {
+    return {};
+}) as unknown as NodeAPI;
 
 describe(HueBridge, () => {
     beforeEach(() => {
@@ -72,13 +74,13 @@ describe(HueBridge, () => {
         nodeWarn.mockClear();
     });
     it("should be constructable", () => {
-        expect(() => new HueBridge(node, config)).not.toThrow();
+        expect(() => new HueBridge(node, config, RED)).not.toThrow();
     });
 
     describe("after construction", () => {
         let bridgeNode!: HueBridge;
         beforeEach(() => {
-            bridgeNode = new HueBridge(node, config);
+            bridgeNode = new HueBridge(node, config, RED);
         });
 
         describe(HueBridge.prototype.start, () => {
@@ -533,7 +535,7 @@ describe(HueBridge, () => {
                 bridgeNode = new HueBridge(node, {
                     ...config,
                     disableupdates: true
-                });
+                }, RED);
                 jest.spyOn(bridgeNode, "subscribeToBridgeEventStream").mockReturnValue();
                 bridgeNode.keepUpdated();
                 expect(bridgeNode.subscribeToBridgeEventStream).not.toBeCalled();
@@ -546,20 +548,23 @@ describe(HueBridge, () => {
         });
 
         describe(HueBridge.prototype.autoUpdateFirmware, () => {
+            beforeEach(() => {
+                jest.mocked(API.setBridgeUpdate).mockClear();
+            });
             it("should do nothing if config.autoupdates === false", () => {
-                bridgeNode = new HueBridge(node, { ...config, autoupdates: false });
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: false }, RED);
                 const promise = bridgeNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).not.toBeCalled();
                 return promise;
             });
             it("should make an API call to update firmware if config.autoupdates === true", () => {
-                bridgeNode = new HueBridge(node, { ...config, autoupdates: true });
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: true }, RED);
                 const promise = bridgeNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
                 return promise;
             });
             it("should make an API call to update firmware if config.autoupdates === undefined", () => {
-                bridgeNode = new HueBridge(node, { ...config, autoupdates: undefined });
+                bridgeNode = new HueBridge(node, { ...config, autoupdates: undefined }, RED);
                 const promise = bridgeNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
                 return promise;
