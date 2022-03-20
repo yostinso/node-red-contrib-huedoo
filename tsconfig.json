@@ -16,6 +16,9 @@
     "experimentalDecorators": true,
     "outDir": "./dist"
   },
+  "include": [
+    "huemagic/**/*"
+  ],
   "exclude": [
     "node_modules",
     "compile"

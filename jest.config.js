@@ -9,8 +9,8 @@ module.exports = {
   testTimeout: 2000,
   restoreMocks: true,
   testMatch: [ "**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts" ],
-  testPathIgnorePatterns: [ "<rootDir>/dist/" ],
-  modulePathIgnorePatterns: [ "<rootDir>/dist/" ],
+  testPathIgnorePatterns: [ "<rootDir>/dist/*" ],
+  modulePathIgnorePatterns: [ "<rootDir>/dist/*" ],
   globals: {
     "ts-jest": {
       tsconfig: "tsconfig.json"
