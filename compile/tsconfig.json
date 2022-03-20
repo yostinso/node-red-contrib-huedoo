@@ -12,12 +12,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     
-    "rootDir": "huemagic",
+    "rootDir": ".",
     "experimentalDecorators": true,
-    "outDir": "./dist"
+    "outDir": "./js"
   },
   "exclude": [
     "node_modules",
-    "compile"
   ]
 }
