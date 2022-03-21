@@ -106,5 +106,11 @@ export default class ES6Node implements Node {
 
     constructor(node: Node) {
         Object.assign(this, node);
+
+        if ("super_" in node.constructor) {
+            // Don't call this if we're e.g. in a test environment
+            const super_: Function = (node.constructor as any)["super_"];
+            super_.bind(this)(node);
+        }
     }
 }

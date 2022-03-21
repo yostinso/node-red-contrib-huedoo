@@ -25,7 +25,7 @@ export class HueBridgeNode extends NodeRedNode {
             this.bridge = bridge;
             this.init();
         } else if (bridge === undefined || bridge == null) {
-			node.status({fill: "red", shape: "ring", text: "hue-bridge.node.not-configured"});
+			this.status({fill: "red", shape: "ring", text: "hue-bridge.node.not-configured"});
         } else {
             throw new Error(`Wrong kind of bridge config! ${bridge}`);
         }
