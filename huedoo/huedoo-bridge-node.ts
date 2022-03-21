@@ -1,9 +1,10 @@
-import NodeRedNode from "./ES6Node";
 import * as NodeRed from "node-red";
+import util from "util";
+import NodeRedNode from "./ES6Node";
 import { HueBridgeConfig, HueBridgeDef } from "./huedoo-bridge-config";
 import { Bridge } from "./utils/types/api/bridge";
 
-class HueBridge extends NodeRedNode {
+export class HueBridgeNode extends NodeRedNode {
     private readonly config: HueBridgeDef;
 	private readonly RED: NodeRed.NodeAPI;
     private readonly bridge?: HueBridgeConfig;
@@ -22,14 +23,12 @@ class HueBridge extends NodeRedNode {
         const bridge = RED.nodes.getNode(config.bridge);
         if (bridge instanceof HueBridgeConfig) {
             this.bridge = bridge;
-        } else if (bridge === undefined) {
-			this.status({fill: "red", shape: "ring", text: "hue-bridge.node.not-configured"});
-            return;
+            this.init();
+        } else if (bridge === undefined || bridge == null) {
+			node.status({fill: "red", shape: "ring", text: "hue-bridge.node.not-configured"});
         } else {
-            throw new Error("Wrong kind of bridge config!")
+            throw new Error(`Wrong kind of bridge config! ${bridge}`);
         }
-
-		this.init();
 	}
 
     init() {
@@ -65,13 +64,17 @@ class HueBridge extends NodeRedNode {
     }
 }
 
-export default function (RED: NodeRed.NodeAPI) {
+module.exports = function (RED: NodeRed.NodeAPI) {
     function MakeNode(this: NodeRed.Node, config: HueBridgeDef) {
         RED.nodes.createNode(this, config);
-        return new HueBridge(this, config, RED);
+        util.inherits(HueBridgeNode, this.constructor);
+        return new HueBridgeNode(this, config, RED);
     }
 	RED.nodes.registerType(
 		"huedoo-bridge-node",
 		MakeNode
 	)
 }
+
+export default module.exports;
+module.exports.HueBridgeNode = HueBridgeNode;

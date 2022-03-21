@@ -1,6 +1,9 @@
 import dayjs from "dayjs";
 import EventEmitter from "events";
+import { NextFunction, ParamsDictionary, Query, Request, Response } from "express-serve-static-core";
+import { queue as FastQ } from "fastq";
 import * as NodeRed from "node-red";
+import util from "util";
 import NodeRedNode from "./ES6Node";
 import API, { ProcessedResources } from './utils/api';
 import { isDiff, mergeDeep } from "./utils/merge";
@@ -11,8 +14,6 @@ import { Rule } from "./utils/types/api/rules";
 import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
 import { Button, isButton } from "./utils/types/resources/button";
 import { isOwnedResource, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, serviceOwnerResourceTypes, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
-import { Request, Response, ParamsDictionary, Query, NextFunction } from "express-serve-static-core";
-import { queue as FastQ } from "fastq";
 
 export interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
@@ -821,13 +822,17 @@ module.exports = (RED: NodeRed.NodeAPI) {
 };
 	*/
 
-export default function (RED: NodeRed.NodeAPI) {
-    function MakeNode(this: NodeRed.Node, config: HueBridgeDef) {
+module.exports = function (RED: NodeRed.NodeAPI) {
+    function MakeNode2(this: NodeRed.Node, config: HueBridgeDef) {
         RED.nodes.createNode(this, config);
+        util.inherits(HueBridgeConfig, this.constructor);
         return new HueBridgeConfig(this, config, RED);
     }
 	RED.nodes.registerType(
 		"huedoo-bridge-config",
-		MakeNode
+		MakeNode2
 	)
 }
+
+export default module.exports;
+module.exports.HueBridgeConfig = HueBridgeConfig;
