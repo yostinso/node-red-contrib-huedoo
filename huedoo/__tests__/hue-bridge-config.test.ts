@@ -9,7 +9,7 @@ jest.mock("dayjs", () => {
 import _dayjs from "dayjs";
 import { EventEmitter as _EventEmitter } from "events";
 import { Node, NodeAPI } from "node-red";
-import { HueBridgeConfig, HueBridgeDef } from "../hue-bridge-config";
+import hueBridgeRegister, { HueBridgeConfig, HueBridgeDef } from "../huedoo-bridge-config";
 import API from "../utils/api";
 import { Bridge } from "../utils/types/api/bridge";
 import { Resource } from "../utils/types/api/resource";

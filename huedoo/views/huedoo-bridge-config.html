@@ -1,5 +1,5 @@
 <script type="text/javascript">
-	RED.nodes.registerType("hue-bridge-config", {
+	RED.nodes.registerType("huedoo-bridge-config", {
 		category: "config",
 		color: '#c7d8d8',
 		defaults: {
@@ -12,12 +12,12 @@
 			autoupdates: { value: true },
 			disableupdates: { value: false }
 		},
-		icon: "hue-bridge-config.png",
+		icon: "huedoo-bridge-config.png",
 		label: function() {
 			return this.name;
 		},
 		paletteLabel: function() {
-		    return this._("hue-bridge-config.node.title");
+		    return this._("huedoo-bridge-config.node.title");
 		},
 		oneditprepare: function()
 		{
@@ -48,7 +48,7 @@
 				var current = $('#node-config-input-bridge').val();
 
 				// TRIGGER SEARCHING NOTIFICATION
-				var notification = RED.notify(scope._("hue-bridge-config.config.searching"), { type: "compact", modal: true, fixed: true });
+				var notification = RED.notify(scope._("huedoo-bridge-config.config.searching"), { type: "compact", modal: true, fixed: true });
 
 				// GET THE SENSORS
 				$.get('hue/bridges')
@@ -57,7 +57,7 @@
 				    if(allResources.length <= 0)
 				    {
 				        notification.close();
-				        RED.notify(scope._("hue-bridge-config.config.none-found"), { type: "error" });
+				        RED.notify(scope._("huedoo-bridge-config.config.none-found"), { type: "error" });
 				        return false;
 				    }
 
@@ -89,7 +89,7 @@
 				.fail(function()
 				{
 				    notification.close();
-				    RED.notify(scope._("hue-bridge-config.config.unknown-error"), "error");
+				    RED.notify(scope._("huedoo-bridge-config.config.unknown-error"), "error");
 				});
 			}
 
@@ -101,7 +101,7 @@
 				if(currentBridgeIP.length > 3)
 				{
 					// TRIGGER SEARCHING NOTIFICATION
-					var notification = RED.notify(scope._("hue-bridge-config.config.connecting"), { type: "compact", modal: true, fixed: true });
+					var notification = RED.notify(scope._("huedoo-bridge-config.config.connecting"), { type: "compact", modal: true, fixed: true });
 
 					$.ajax({
 						url: 'hue/name',
@@ -119,7 +119,7 @@
 						// CLOSE SEARCH NOTIFICATION
 						notification.close();
 
-						RED.notify(scope._("hue-bridge-config.config.invalid") + err.statusText, "error");
+						RED.notify(scope._("huedoo-bridge-config.config.invalid") + err.statusText, "error");
 					});
 				}
 			});
@@ -141,14 +141,14 @@
 			{
 				if(!$('#node-config-input-bridge').val())
 				{
-					RED.notify(scope._("hue-bridge-config.config.error-select-first"), "error");
+					RED.notify(scope._("huedoo-bridge-config.config.error-select-first"), "error");
 				}
 				else
 				{
 					$('#node-config-input-key').val("");
-					$('#node-config-input-key').attr("placeholder", scope._("hue-bridge-config.config.waiting"));
+					$('#node-config-input-key').attr("placeholder", scope._("huedoo-bridge-config.config.waiting"));
 
-					RED.notify(scope._("hue-bridge-config.config.new-user-press"));
+					RED.notify(scope._("huedoo-bridge-config.config.new-user-press"));
 
 					setTimeout(function()
 					{
@@ -157,14 +157,14 @@
 						{
 							if(data == "error")
 							{
-								RED.notify(scope._("hue-bridge-config.config.retry"), "error");
+								RED.notify(scope._("huedoo-bridge-config.config.retry"), "error");
 								$('#node-config-input-key').attr("placeholder", "");
 							}
 							else
 							{
 								var userdata = JSON.parse(data);
 								$('#node-config-input-key').val(userdata[0].success.username);
-								RED.notify(scope._("hue-bridge-config.config.success"));
+								RED.notify(scope._("huedoo-bridge-config.config.success"));
 							}
 						}).fail(function(err)
 						{

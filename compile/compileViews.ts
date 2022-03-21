@@ -5,11 +5,13 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 
 const argv = yargs(hideBin(process.argv)).help("h").alias("h", "help").options({
-    outDir: { type: "string", describe: "specify output folder", default: "." }
+    outDir: { type: "string", describe: "specify output folder", default: "." },
+    locales: { type: "string", require: true, describe: "specify locales folder" }
 }).parseSync();
 
 const folders = argv._.map((s) => `${s}`);
 const outDir = argv.outDir;
+const localesDir = argv.locales;
 
 
 function getHtmlPaths(folder: string): Promise<string[]> {
@@ -55,6 +57,7 @@ folders.forEach((folder) => {
                 path.relative(folder, baseFile)
             );
 
+
             // Generate combined file
             console.log(`Generating file ${outFile} from ${baseFile} and`, relatedByType);
             mkdirSync(path.parse(outFile).dir, { recursive: true });
@@ -76,6 +79,32 @@ folders.forEach((folder) => {
                     fh.write(content)
                 });
                 return fh;
+            }).then(() => {
+                // Copy locales
+                return fs.readdir(localesDir, { withFileTypes: true }).then((langDirs) => {
+                    const languages = langDirs.map((langDir) => {
+                        if (langDir.isDirectory()) {
+                            return fs.readdir(path.join(localesDir, langDir.name), { withFileTypes: true }).then((langFiles) => {
+                                return langFiles.filter((langFile) => path.parse(langFile.name).name == baseName).map((langFile) => {
+                                    return path.join(localesDir, langDir.name, langFile.name);
+                                });
+                            });
+                        } else {
+                            return [];
+                        }
+                    });
+                    return Promise.all(languages).then((files) => files.flat());
+                }).then((localeFiles) => {
+                    console.log(`  with locales`, localeFiles);
+                    const promises = localeFiles.map((localeFile) => {
+                        const relPath = path.parse(path.relative(localesDir, localeFile));
+                        const newPath = path.join(outDir, "locales", relPath.dir, relPath.base);
+                        return fs.mkdir(path.join(outDir, "locales", relPath.dir), { recursive: true }).then(() => {
+                            return fs.copyFile(localeFile, newPath);
+                        });
+                    })
+                    return Promise.all(promises);
+                });
             })
         })
     })

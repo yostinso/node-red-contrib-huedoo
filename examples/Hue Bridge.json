@@ -52,7 +52,7 @@
     },
     {
         "id": "ea4668e7.fac4f",
-        "type": "hue-bridge-node",
+        "type": "huedoo-bridge-node",
         "z": "bf04a073.be4428",
         "autoupdates": true,
         "skipglobalevents": false,

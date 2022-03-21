@@ -13,7 +13,10 @@
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
+            },
+            "dependsOn": [
+                "Compile Views"
+            ]
         },
         {
             "label": "Install",
@@ -23,6 +26,31 @@
                 "cwd": "/data/"
             },
             "problemMatcher": []
+        },
+        {
+            "type": "npm",
+            "script": "compile:views",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Compile Views",
+            "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views",
+            "dependsOn":  [ "Compile Compilers" ]
+        },
+        {
+            "type": "npm",
+            "script": "compile:compilers",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Compile Compilers",
+            "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views"
+        },
+        {
+            "type": "npm",
+            "script": "compile:clean",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Clean",
+            "detail": "rm -r dist"
         }
     ]
 }

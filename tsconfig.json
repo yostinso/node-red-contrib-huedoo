@@ -12,12 +12,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     
-    "rootDir": "huemagic",
+    "rootDir": "huedoo",
     "experimentalDecorators": true,
     "outDir": "./dist"
   },
   "include": [
-    "huemagic/**/*"
+    "huedoo/**/*"
   ],
   "exclude": [
     "node_modules",

@@ -822,11 +822,12 @@ module.exports = (RED: NodeRed.NodeAPI) {
 	*/
 
 export default function (RED: NodeRed.NodeAPI) {
+    function MakeNode(this: NodeRed.Node, config: HueBridgeDef) {
+        RED.nodes.createNode(this, config);
+        return new HueBridgeConfig(this, config, RED);
+    }
 	RED.nodes.registerType(
-		"hue-bridge-config",
-		function (this: NodeRed.Node, config: HueBridgeDef) {
-			RED.nodes.createNode(this, config);
-			return new HueBridgeConfig(this, config, RED);
-		}
+		"huedoo-bridge-config",
+		MakeNode
 	)
 }

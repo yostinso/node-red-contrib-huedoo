@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Philips Hue support for bridges, lights, groups, scenes, rules, taps, switches, buttons, motion sensors, temperature sensors and Lux sensors using Node-RED.",
   "author": "yostinso",
-  "homepage": "https://github.com/yostinso/node-red-contrib-huemagic",
+  "homepage": "https://github.com/yostinso/node-red-contrib-huedoo",
   "license": "Apache-2.0",
   "maintainers": [
     "E.O. Stinson <yostinso@aradine.com>"
@@ -26,24 +26,10 @@
     "api",
     "iot"
   ],
-  "//node-red-orig": {
-    "nodes": {
-      "hue-bridge": "huemagic/hue-bridge-config.js",
-      "hue-bridge-node": "huemagic/hue-bridge.js",
-      "hue-magic": "huemagic/hue-magic.js",
-      "hue-light": "huemagic/hue-light.js",
-      "hue-group": "huemagic/hue-group.js",
-      "hue-scene": "huemagic/hue-scene.js",
-      "hue-buttons": "huemagic/hue-buttons.js",
-      "hue-motion": "huemagic/hue-motion.js",
-      "hue-temperature": "huemagic/hue-temperature.js",
-      "hue-brightness": "huemagic/hue-brightness.js",
-      "hue-rules": "huemagic/hue-rules.js"
-    }
-  },
   "node-red": {
     "nodes": {
-      "hue-bridge": "dist/hue-bridge-config.js"
+      "huedoo-bridge-config": "dist/huedoo-bridge-config.js",
+      "huedoo-bridge-node": "dist/huedoo-bridge-node.js"
     }
   },
   "publishConfig": {
@@ -52,7 +38,8 @@
   "scripts": {
     "compile:ts": "tsc",
     "compile:compilers": "tsc --project ./compile",
-    "compile:views": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views"
+    "compile:views": "node ./compile/js/compileViews.js --outDir dist --locales ./huedoo/locales ./huedoo/views",
+    "compile:clean": "rm -r dist"
   },
   "dependencies": {
     "async": "^3.2.2",
@@ -72,9 +59,11 @@
     "@types/jest": "^27.4.1",
     "@types/node": "^17.0.21",
     "@types/node-red": "^1.2.0",
+    "@types/node-red-node-test-helper": "^0.2.2",
     "@types/yargs": "^17.0.10",
     "jest": "^27.5.1",
     "node-red": "^2.2.2",
+    "node-red-node-test-helper": "^0.2.7",
     "ts-jest": "^27.1.3",
     "typescript": "^4.6.2",
     "yargs": "^17.4.0"
