@@ -1,4 +1,7 @@
 {
     "jest.jestCommandLine": "npx jest --maxWorkers 4",
-    "jest.autoRun": "off"
+    "jest.autoRun": {"watch": true, "onStartup": ["all-tests"]}
+    // off
+    // {"watch": false, "onSave": "test-file", "onStartup": ["all-tests"]}
+    // {"watch": false, "onSave": "test-src-file"}
 }

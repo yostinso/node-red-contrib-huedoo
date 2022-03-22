@@ -25,20 +25,20 @@ export class HueBridgeNode extends NodeRedNode {
             this.bridge = bridge;
             this.init();
         } else if (bridge === undefined || bridge == null) {
-			this.status({fill: "red", shape: "ring", text: "hue-bridge.node.not-configured"});
+			this.status({fill: "red", shape: "ring", text: "huedoo-bridge-node.node.not-configured"});
         } else {
             throw new Error(`Wrong kind of bridge config! ${bridge}`);
         }
 	}
 
     init() {
-		this.status({fill: "grey", shape: "dot", text: "hue-bridge.node.connecting"});
+		this.status({fill: "grey", shape: "dot", text: "huedoo-bridge-node.node.connecting"});
         this.subscribeToBridge();
         this.on("input", this.handleMessage)
     }
 
     setConnected() {
-        this.status({ fill: "green", shape: "dot", text: "hue-bridge.node.connected" });
+        this.status({ fill: "green", shape: "dot", text: "huedoo-bridge-node.node.connected" });
     }
 
     subscribeToBridge() {
