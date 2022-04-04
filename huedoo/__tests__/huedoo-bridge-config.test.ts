@@ -1,21 +1,24 @@
+const OrigEventEmitter = jest.requireActual("events");
+jest.mock("events");
+
 jest.mock("node-red");
 jest.mock("../utils/api");
-jest.mock("events");
 jest.mock("dayjs", () => {
     const dayjs = jest.requireActual("dayjs");
     return jest.fn().mockImplementation((...args) => dayjs(...args));
 });
 
+import { randomUUID } from "crypto";
 import _dayjs from "dayjs";
 import { EventEmitter as _EventEmitter } from "events";
 import { Node, NodeAPI } from "node-red";
-import { HueBridgeConfig, HueBridgeDef } from "../huedoo-bridge-config";
+import { HueBridgeConfig, HueBridgeDef, UpdatedResourceEvent } from "../huedoo-bridge-config";
 import API from "../utils/api";
 import { Bridge } from "../utils/types/api/bridge";
 import { Resource } from "../utils/types/api/resource";
 import { RulesV1ResponseItem } from "../utils/types/api/rules";
 import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource } from "../utils/types/expanded/resource";
-import { ServiceOwnerResourceType } from "../utils/types/resources/generic";
+import { ResourceType, ServiceOwnerResourceType } from "../utils/types/resources/generic";
 import { defaultBridgeConfig } from "../utils/__fixtures__/api/config";
 import { makeEvent } from "../utils/__fixtures__/api/event";
 import { defaultResources, makeButtonGroup, makeDevice, makeLight } from "../utils/__fixtures__/api/resources";
@@ -23,6 +26,7 @@ import { defaultRules } from "../utils/__fixtures__/api/rules";
 
 
 const EventEmitter = _EventEmitter as jest.MockedClass<typeof _EventEmitter>;
+
 const dayjs = jest.mocked(_dayjs);
 
 const nodeLog = jest.fn().mockName("nodeLog");
@@ -40,7 +44,7 @@ const config: HueBridgeDef = {
     bridge: BRIDGE,
     key: BRIDGE_KEY,
     id: "bridge",
-    type: "bridge",
+    type: "hue-bridge-config",
     name: "my bridge",
     z: "wat"
 }
@@ -64,9 +68,7 @@ function mockRunMethodOnceAndThenNoop<T extends {}, M extends FunctionPropertyNa
     mock.mockResolvedValue(true as any);
     return mock;
 }
-const RED: NodeAPI = jest.fn().mockImplementation(() => {
-    return {};
-}) as unknown as NodeAPI;
+const RED: NodeAPI = {} as unknown as NodeAPI;
 
 describe(HueBridgeConfig, () => {
     beforeEach(() => {
@@ -78,9 +80,9 @@ describe(HueBridgeConfig, () => {
     });
 
     describe("after construction", () => {
-        let bridgeNode!: HueBridgeConfig;
+        let bridgeConfigNode!: HueBridgeConfig;
         beforeEach(() => {
-            bridgeNode = new HueBridgeConfig(node, config, RED);
+            bridgeConfigNode = new HueBridgeConfig(node, config, RED);
         });
 
         describe(HueBridgeConfig.prototype.start, () => {
@@ -89,33 +91,33 @@ describe(HueBridgeConfig, () => {
                 mockInstantTimeout();
 
                 // Mock .start to just resolve(true) after running the first time
-                const mockStart = mockRunMethodOnceAndThenNoop(bridgeNode, "start");
+                const mockStart = mockRunMethodOnceAndThenNoop(bridgeConfigNode, "start");
 
                 // Trigger an error so we retry
                 jest.mocked(API.init).mockRejectedValueOnce("error message");
 
-                await bridgeNode.start();
+                await bridgeConfigNode.start();
                 expect(nodeLog).toBeCalledTimes(2);
                 expect(nodeLog).toBeCalledWith("error message");
 
                 jest.useRealTimers();
             });
             it("should not retry when the node is disabled", () => {
-                bridgeNode.enabled = false;
+                bridgeConfigNode.enabled = false;
                 jest.mocked(API.init).mockRejectedValueOnce("error message");
-                const result = expect(bridgeNode.start()).resolves.toBe(false);
+                const result = expect(bridgeConfigNode.start()).resolves.toBe(false);
                 return result;
             });
             it("should fetch all resources", async () => {
-                const getAllResourcesMock = jest.spyOn(bridgeNode, "getAllResources");
-                await bridgeNode.start();
+                const getAllResourcesMock = jest.spyOn(bridgeConfigNode, "getAllResources");
+                await bridgeConfigNode.start();
                 expect(getAllResourcesMock).toBeCalled();
             })
             it("should emit initial resources", async () => {
-                const pushStateMock = jest.spyOn(bridgeNode, "pushUpdatedState")
+                const pushStateMock = jest.spyOn(bridgeConfigNode, "pushUpdatedState")
                 pushStateMock.mockClear();
 
-                await bridgeNode.start();
+                await bridgeConfigNode.start();
                 pushStateMock.mockReturnValue();
                 let expectedResourceIds = [
                     ...defaultResources.map((r) => r.id),
@@ -126,7 +128,7 @@ describe(HueBridgeConfig, () => {
                 expect(emittedResourceIds).toEqual(expectedResourceIds);
             });
             it("should subscribe to events and kick off firmware updates", async () => {
-                await bridgeNode.start();
+                await bridgeConfigNode.start();
                 expect(API.subscribe).toBeCalled();
                 expect(API.setBridgeUpdate).toBeCalled();
             })
@@ -134,7 +136,7 @@ describe(HueBridgeConfig, () => {
 
         describe(HueBridgeConfig.prototype.getBridgeInformation, () => {
             it("should fetch and generate a bridge config", () => {
-                return expect(bridgeNode.getBridgeInformation()).resolves.toEqual(expect.objectContaining({
+                return expect(bridgeConfigNode.getBridgeInformation()).resolves.toEqual(expect.objectContaining({
                     ...defaultBridgeConfig,
                     id: "bridge",
                     id_v1: "/config",
@@ -143,28 +145,28 @@ describe(HueBridgeConfig, () => {
                 }));
             });
             it("should not replace the bridge entry if replaceResources is true", async () => {
-                await bridgeNode.getBridgeInformation();
-                expect(bridgeNode.resources["bridge"]).toBeUndefined();
+                await bridgeConfigNode.getBridgeInformation();
+                expect(bridgeConfigNode.resources["bridge"]).toBeUndefined();
             });
             it("should replace the bridge entry if replaceResources is true", async () => {
-                await bridgeNode.getBridgeInformation(true);
-                expect(bridgeNode.resources["bridge"]).toEqual(expect.objectContaining({
+                await bridgeConfigNode.getBridgeInformation(true);
+                expect(bridgeConfigNode.resources["bridge"]).toEqual(expect.objectContaining({
                     type: "bridge",
                     id: "bridge"
                 }));
             });
             it("should reject on API failure", () => {
                 jest.mocked(API.config).mockRejectedValueOnce("error message");
-                const result = expect(bridgeNode.getBridgeInformation()).rejects.toEqual("error message");
+                const result = expect(bridgeConfigNode.getBridgeInformation()).rejects.toEqual("error message");
                 return result;
             });
         });
         describe(HueBridgeConfig.prototype.getAllResources, () => {
             it("should include the bridge in the results", () => {
-                jest.spyOn(bridgeNode, "getBridgeInformation").mockImplementation(() => {
+                jest.spyOn(bridgeConfigNode, "getBridgeInformation").mockImplementation(() => {
                     return Promise.resolve({ type: "bridge", id: "mockBridge" }) as Promise<Bridge>;
                 });
-                let resources = bridgeNode.getAllResources();
+                let resources = bridgeConfigNode.getAllResources();
                 return expect(resources).resolves.toContainEqual(expect.objectContaining({
                     id: "mockBridge",
                     type: "bridge"
@@ -174,7 +176,7 @@ describe(HueBridgeConfig, () => {
                 jest.mocked(API.rules).mockResolvedValueOnce({
                     "my_rule": { name: "My Rule", status: "mock status" } as RulesV1ResponseItem
                 });
-                let resources = bridgeNode.getAllResources();
+                let resources = bridgeConfigNode.getAllResources();
                 return expect(resources).resolves.toContainEqual(expect.objectContaining({
                     name: "My Rule",
                     type: "rule",
@@ -187,14 +189,14 @@ describe(HueBridgeConfig, () => {
                 jest.mocked(API.getAllResources).mockResolvedValueOnce([
                     { id: "my_device", type: "device" }
                 ])
-                let resources = bridgeNode.getAllResources();
+                let resources = bridgeConfigNode.getAllResources();
                 return expect(resources).resolves.toContainEqual(expect.objectContaining({
                     id: "my_device", type: "device"
                 }));
             });
             it("should contain everything as fetched from the API", async () => {
                 // Integration test
-                let resources = await bridgeNode.getAllResources();
+                let resources = await bridgeConfigNode.getAllResources();
                 expect(resources).toContainEqual(expect.objectContaining(defaultBridgeConfig))
                 Object.entries(defaultRules).forEach(([id, rule]) => {
                     expect(resources).toContainEqual(expect.objectContaining({
@@ -209,7 +211,7 @@ describe(HueBridgeConfig, () => {
                 });
             });
             it("should be true that all entries have id, id_v1, and type", async () => {
-                let resources = await bridgeNode.getAllResources();
+                let resources = await bridgeConfigNode.getAllResources();
                 resources.forEach((resource) => {
                     expect(resource).toHaveProperty("id");
                     expect(resource).toHaveProperty("id_v1");
@@ -218,7 +220,7 @@ describe(HueBridgeConfig, () => {
             });
             it("should reject on API failure", () => {
                 jest.mocked(API.config).mockRejectedValueOnce("error message");
-                const result = expect(bridgeNode.getAllResources()).rejects.toEqual("error message");
+                const result = expect(bridgeConfigNode.getAllResources()).rejects.toEqual("error message");
                 return result;
             });
         });
@@ -253,7 +255,7 @@ describe(HueBridgeConfig, () => {
                 }
 
                 const emit = mockEmit();
-                bridgeNode.pushUpdatedState(resource, "device");
+                bridgeConfigNode.pushUpdatedState(resource, "device");
 
                 expect(emit).toBeCalledTimes(2);
                 expect(emit).toBeCalledWith("bridge_my_resource", msg);
@@ -266,14 +268,14 @@ describe(HueBridgeConfig, () => {
                 }
 
                 const emit = mockEmit();
-                bridgeNode.pushUpdatedState(resource, "device");
+                bridgeConfigNode.pushUpdatedState(resource, "device");
                 expect(emit.mock.calls).toEqual([
                     [ expect.anything(), expect.objectContaining({ suppressMessage: false }) ],
                     [ expect.anything(), expect.objectContaining({ suppressMessage: false }) ],
                 ])
 
                 emit.mockClear();
-                bridgeNode.pushUpdatedState(resource, "device", true);
+                bridgeConfigNode.pushUpdatedState(resource, "device", true);
                 expect(emit.mock.calls).toEqual([
                     [ expect.anything(), expect.objectContaining({ suppressMessage: true }) ],
                     [ expect.anything(), expect.objectContaining({ suppressMessage: true }) ],
@@ -290,7 +292,7 @@ describe(HueBridgeConfig, () => {
                         }
                     };
                     const emit = mockEmit();
-                    bridgeNode.pushUpdatedState(resource, "device");
+                    bridgeConfigNode.pushUpdatedState(resource, "device");
 
                     const serviceMsg = {
                         ...msg,
@@ -311,7 +313,7 @@ describe(HueBridgeConfig, () => {
                         }
                     };
 
-                    bridgeNode.groupsOfResources["my_resource"] = [ "zone_id" ];
+                    bridgeConfigNode.groupsOfResources["my_resource"] = [ "zone_id" ];
 
                     const groupMsg = {
                         id: "zone_id",
@@ -322,7 +324,7 @@ describe(HueBridgeConfig, () => {
                     };
 
                     const emit = mockEmit();
-                    bridgeNode.pushUpdatedState(resource, "device");
+                    bridgeConfigNode.pushUpdatedState(resource, "device");
 
                     expect(emit).toBeCalledTimes(4);
                     expect(emit).nthCalledWith(3, "bridge_zone_id", groupMsg);
@@ -334,16 +336,16 @@ describe(HueBridgeConfig, () => {
         describe(HueBridgeConfig.prototype.emitInitialStates, () => {
             it("should not do anything on the current tick", async () => {
                 jest.useFakeTimers();
-                const pushStateMock = jest.spyOn(bridgeNode, "pushUpdatedState")
+                const pushStateMock = jest.spyOn(bridgeConfigNode, "pushUpdatedState")
                 pushStateMock.mockReturnValue();
 
-                bridgeNode.resources["my_resource"] = {
+                bridgeConfigNode.resources["my_resource"] = {
                     id: "my_resource",
                     type: "device",
                 };
 
                 // Don't emit events immediately
-                const promise = bridgeNode.emitInitialStates();
+                const promise = bridgeConfigNode.emitInitialStates();
                 expect(pushStateMock).not.toBeCalled();
 
                 // But do in the next event loop
@@ -357,7 +359,7 @@ describe(HueBridgeConfig, () => {
             })
             it("should emit an event for every resource", () => {
                     jest.useFakeTimers();
-                    const pushStateMock = jest.spyOn(bridgeNode, "pushUpdatedState")
+                    const pushStateMock = jest.spyOn(bridgeConfigNode, "pushUpdatedState")
                     pushStateMock.mockReturnValue();
                     const r1: ExpandedResource<"device"> = {
                         id: "my_resource1",
@@ -367,10 +369,10 @@ describe(HueBridgeConfig, () => {
                         id: "my_resource1",
                         type: "device",
                     };
-                    bridgeNode.resources["my_resource1"] = r1;
-                    bridgeNode.resources["my_resource2"] = r2;
+                    bridgeConfigNode.resources["my_resource1"] = r1;
+                    bridgeConfigNode.resources["my_resource2"] = r2;
 
-                    const promise = bridgeNode.emitInitialStates();
+                    const promise = bridgeConfigNode.emitInitialStates();
                     jest.runAllTimers();
 
                     expect(pushStateMock).toBeCalledTimes(2);
@@ -387,49 +389,49 @@ describe(HueBridgeConfig, () => {
         describe(HueBridgeConfig.prototype.subscribeToBridgeEventStream, () => {
             it("should subscribe to bridge events", () => {
                 jest.mocked(API.subscribe).mockReturnValueOnce(Promise.resolve(true));
-                bridgeNode.subscribeToBridgeEventStream();
-                expect(API.subscribe).toBeCalledWith(config, bridgeNode.handleBridgeEvent);
+                bridgeConfigNode.subscribeToBridgeEventStream();
+                expect(API.subscribe).toBeCalledWith(config, bridgeConfigNode.handleBridgeEvent);
             });
         });
         describe(HueBridgeConfig.prototype.handleBridgeEvent, () => {
             beforeEach(() => {
-                jest.spyOn(bridgeNode, "pushUpdatedState").mockReturnValue();
+                jest.spyOn(bridgeConfigNode, "pushUpdatedState").mockReturnValue();
             });
             it("shouldn't update state or events if the event contains no new info", () => {
                 const event = makeEvent("my_event", "update", makeDevice("new_device"));
-                const resources = { ...bridgeNode.resources };
+                const resources = { ...bridgeConfigNode.resources };
 
-                bridgeNode.handleBridgeEvent([ event ]);
+                bridgeConfigNode.handleBridgeEvent([ event ]);
                 
-                expect(bridgeNode.pushUpdatedState).not.toBeCalled();
-                expect(bridgeNode.resources).toEqual(resources);
+                expect(bridgeConfigNode.pushUpdatedState).not.toBeCalled();
+                expect(bridgeConfigNode.resources).toEqual(resources);
             });
             it("should do nothing for events with no differences", () => {
                 const device = makeDevice("new_device");
-                bridgeNode.resources[device.id] = device;
+                bridgeConfigNode.resources[device.id] = device;
                 const event = makeEvent("my_event", "update", device);
-                const resources = { ...bridgeNode.resources };
+                const resources = { ...bridgeConfigNode.resources };
 
-                bridgeNode.handleBridgeEvent([ event ]);
+                bridgeConfigNode.handleBridgeEvent([ event ]);
 
-                expect(bridgeNode.pushUpdatedState).not.toBeCalled();
-                expect(bridgeNode.resources).toEqual(resources);
+                expect(bridgeConfigNode.pushUpdatedState).not.toBeCalled();
+                expect(bridgeConfigNode.resources).toEqual(resources);
             });
             it("should update the eventing resource and send an event for an unowned resource", () => {
                 const now = dayjs();
 
                 const device = makeDevice("new_device", "Old Name");
-                bridgeNode.resources[device.id] = device;
+                bridgeConfigNode.resources[device.id] = device;
                 const event = makeEvent("my_event", "update", {
                     ...device,
                     metadata: { ...device.metadata, name: "Something New" }
                 });
 
                 dayjs.mockReturnValueOnce(now);
-                bridgeNode.handleBridgeEvent([ event ]);
+                bridgeConfigNode.handleBridgeEvent([ event ]);
 
-                expect(bridgeNode.pushUpdatedState).toBeCalled();
-                expect(bridgeNode.resources).toEqual({
+                expect(bridgeConfigNode.pushUpdatedState).toBeCalled();
+                expect(bridgeConfigNode.resources).toEqual({
                     new_device: expect.objectContaining({
                         metadata: expect.objectContaining({ name: "Something New" }),
                         updated: now.format()
@@ -448,16 +450,16 @@ describe(HueBridgeConfig, () => {
                         rtype: "device"
                     });
                     
-                    bridgeNode.resources[device.id] = device;
+                    bridgeConfigNode.resources[device.id] = device;
                     const event = makeEvent("my_event", "update", {
                         ...device,
                         metadata: { ...device.metadata, name: "Something New" }
                     });
-                    expect(() => bridgeNode.handleBridgeEvent([ event ])).toThrowError(/No resource entry/);
+                    expect(() => bridgeConfigNode.handleBridgeEvent([ event ])).toThrowError(/No resource entry/);
                 });
                 it("should notify the parent, not the resource directly", () => {
                     const [ group, buttons ] = makeButtonGroup("Button Group", 4);
-                    putExpandedResources(bridgeNode, group, ...buttons);
+                    putExpandedResources(bridgeConfigNode, group, ...buttons);
 
                     const button = buttons[0];
                     const event = makeEvent("my_event", "update", {
@@ -465,9 +467,9 @@ describe(HueBridgeConfig, () => {
                         button: { last_event: "initial_press" }
                     });
                     
-                    bridgeNode.handleBridgeEvent([ event ]);
-                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
-                    expect(bridgeNode.pushUpdatedState).toBeCalledWith(expect.objectContaining({
+                    bridgeConfigNode.handleBridgeEvent([ event ]);
+                    expect(bridgeConfigNode.pushUpdatedState).toBeCalledTimes(1);
+                    expect(bridgeConfigNode.pushUpdatedState).toBeCalledWith(expect.objectContaining({
                         id: group.id,
                         services: expect.objectContaining({
                             button: expect.objectContaining({
@@ -482,7 +484,7 @@ describe(HueBridgeConfig, () => {
                 it("should keep only the pressed button state and clear others off the parent if it's a button", () => {
                     const [ group, buttons ] = makeButtonGroup("Button Group", 4);
                     buttons.forEach((btn) => { btn.button = { last_event: "initial_press" }; })
-                    putExpandedResources(bridgeNode, group, ...buttons);
+                    putExpandedResources(bridgeConfigNode, group, ...buttons);
 
                     const button = buttons[0];
                     const event = makeEvent("my_event", "update", {
@@ -490,10 +492,10 @@ describe(HueBridgeConfig, () => {
                         button: { last_event: "short_release"}
                     });
                     
-                    bridgeNode.handleBridgeEvent([ event ]);
-                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
-                    let expandedGroup = bridgeNode.resources[group.id] as ExpandedServiceOwnerResource<"device">;
-                    expect(bridgeNode.pushUpdatedState).toBeCalledWith(expandedGroup, "button");
+                    bridgeConfigNode.handleBridgeEvent([ event ]);
+                    expect(bridgeConfigNode.pushUpdatedState).toBeCalledTimes(1);
+                    let expandedGroup = bridgeConfigNode.resources[group.id] as ExpandedServiceOwnerResource<"device">;
+                    expect(bridgeConfigNode.pushUpdatedState).toBeCalledWith(expandedGroup, "button");
                     
                     expect(expandedGroup.services?.button).toEqual(expect.objectContaining({
                         [buttons[0].id]: expect.objectContaining({ button: { last_event: "short_release" } }),
@@ -505,21 +507,21 @@ describe(HueBridgeConfig, () => {
                 it("should warn but continue if this doesn't seem like an expected owned type", () => {
                     jest.spyOn(console, "warn").mockReturnValueOnce();
                     const [ group, buttons ] = makeButtonGroup("Button Group", 4);
-                    putExpandedResources(bridgeNode, group, ...buttons);
+                    putExpandedResources(bridgeConfigNode, group, ...buttons);
 
-                    bridgeNode.resources[group.id].type = "motion";
+                    bridgeConfigNode.resources[group.id].type = "motion";
                     
                     const button = buttons[0];
                     const event = makeEvent("my_event", "update", {
                         ...button,
                         button: { last_event: "short_release" }
                     });
-                    bridgeNode.handleBridgeEvent([ event ]);
-                    expect(bridgeNode.pushUpdatedState).toBeCalledTimes(1);
+                    bridgeConfigNode.handleBridgeEvent([ event ]);
+                    expect(bridgeConfigNode.pushUpdatedState).toBeCalledTimes(1);
 
                     expect(console.warn).toBeCalledWith(expect.stringContaining("not an expected owner type"));
 
-                    let expandedGroup = bridgeNode.resources[group.id] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>; // This is a lie; it's a "motion"
+                    let expandedGroup = bridgeConfigNode.resources[group.id] as ExpandedServiceOwnerResource<ServiceOwnerResourceType>; // This is a lie; it's a "motion"
                     expect(expandedGroup.services?.button).toEqual(expect.objectContaining({
                         [buttons[0].id]: expect.objectContaining({ button: { last_event: "short_release" } }),
                         [buttons[1].id]: expect.not.objectContaining({ button: expect.anything() }),
@@ -532,18 +534,18 @@ describe(HueBridgeConfig, () => {
 
         describe(HueBridgeConfig.prototype.keepUpdated, () => {
             it("should do nothing if updates are disabled", () => {
-                bridgeNode = new HueBridgeConfig(node, {
+                bridgeConfigNode = new HueBridgeConfig(node, {
                     ...config,
                     disableupdates: true
                 }, RED);
-                jest.spyOn(bridgeNode, "subscribeToBridgeEventStream").mockReturnValue();
-                bridgeNode.keepUpdated();
-                expect(bridgeNode.subscribeToBridgeEventStream).not.toBeCalled();
+                jest.spyOn(bridgeConfigNode, "subscribeToBridgeEventStream").mockReturnValue();
+                bridgeConfigNode.keepUpdated();
+                expect(bridgeConfigNode.subscribeToBridgeEventStream).not.toBeCalled();
             });
             it("should subscribe to events if not disabled", () => {
-                jest.spyOn(bridgeNode, "subscribeToBridgeEventStream").mockReturnValue();
-                bridgeNode.keepUpdated();
-                expect(bridgeNode.subscribeToBridgeEventStream).toBeCalled();
+                jest.spyOn(bridgeConfigNode, "subscribeToBridgeEventStream").mockReturnValue();
+                bridgeConfigNode.keepUpdated();
+                expect(bridgeConfigNode.subscribeToBridgeEventStream).toBeCalled();
             });
         });
 
@@ -552,20 +554,20 @@ describe(HueBridgeConfig, () => {
                 jest.mocked(API.setBridgeUpdate).mockClear();
             });
             it("should do nothing if config.autoupdates === false", () => {
-                bridgeNode = new HueBridgeConfig(node, { ...config, autoupdates: false }, RED);
-                const promise = bridgeNode.autoUpdateFirmware();
+                bridgeConfigNode = new HueBridgeConfig(node, { ...config, autoupdates: false }, RED);
+                const promise = bridgeConfigNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).not.toBeCalled();
                 return promise;
             });
             it("should make an API call to update firmware if config.autoupdates === true", () => {
-                bridgeNode = new HueBridgeConfig(node, { ...config, autoupdates: true }, RED);
-                const promise = bridgeNode.autoUpdateFirmware();
+                bridgeConfigNode = new HueBridgeConfig(node, { ...config, autoupdates: true }, RED);
+                const promise = bridgeConfigNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
                 return promise;
             });
             it("should make an API call to update firmware if config.autoupdates === undefined", () => {
-                bridgeNode = new HueBridgeConfig(node, { ...config, autoupdates: undefined }, RED);
-                const promise = bridgeNode.autoUpdateFirmware();
+                bridgeConfigNode = new HueBridgeConfig(node, { ...config, autoupdates: undefined }, RED);
+                const promise = bridgeConfigNode.autoUpdateFirmware();
                 expect(jest.mocked(API.setBridgeUpdate)).toBeCalled();
                 return promise;
             });
@@ -577,39 +579,39 @@ describe(HueBridgeConfig, () => {
                 jest.mocked(API.setBridgeUpdate).mockRejectedValueOnce([ error ]);
 
                 // Mock .autoUpdateFirmware to just resolve(true) after running the first time
-                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeNode, "autoUpdateFirmware");
+                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeConfigNode, "autoUpdateFirmware");
 
                 // Trigger an error so we retry
-                await bridgeNode.autoUpdateFirmware();
+                await bridgeConfigNode.autoUpdateFirmware();
                 expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
                 expect(nodeWarn).toBeCalledTimes(2);
                 expect(nodeWarn).toBeCalledWith(expect.stringContaining("Error response"));
                 expect(nodeWarn).toBeCalledWith("error message");
 
                 // It should also have started tracking the timeout
-                expect(bridgeNode.firmwareUpdateTimeout).not.toBeUndefined();
+                expect(bridgeConfigNode.firmwareUpdateTimeout).not.toBeUndefined();
 
                 jest.useRealTimers();
             });
             it("should not retry if not enabled", () => {
-                bridgeNode.enabled = false;
+                bridgeConfigNode.enabled = false;
                 const error = { error: { type: 1, address: "example", description: "error message" } };
                 jest.mocked(API.setBridgeUpdate).mockRejectedValueOnce([ error ]);
-                const result = expect(bridgeNode.autoUpdateFirmware()).resolves.toBe(false);
+                const result = expect(bridgeConfigNode.autoUpdateFirmware()).resolves.toBe(false);
                 return result;
             });
             it("should schedule a retry for 12 hours later on success", async () => {
                 jest.useFakeTimers();
                 mockInstantTimeout();
 
-                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeNode, "autoUpdateFirmware");
+                const mockAutoUpdateFirmware = mockRunMethodOnceAndThenNoop(bridgeConfigNode, "autoUpdateFirmware");
 
-                await bridgeNode.autoUpdateFirmware();
+                await bridgeConfigNode.autoUpdateFirmware();
                 expect(setTimeout).toBeCalledWith(expect.anything(), 12*3600*1000);
                 expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
 
                 // It should also have started tracking the timeout
-                expect(bridgeNode.firmwareUpdateTimeout).not.toBeUndefined();
+                expect(bridgeConfigNode.firmwareUpdateTimeout).not.toBeUndefined();
 
                 jest.clearAllTimers();
                 jest.useRealTimers();
@@ -618,23 +620,23 @@ describe(HueBridgeConfig, () => {
                 jest.useFakeTimers();
                 mockInstantTimeout();
 
-                const orig = bridgeNode.autoUpdateFirmware;
-                const mockAutoUpdateFirmware = jest.spyOn(bridgeNode, "autoUpdateFirmware");
+                const orig = bridgeConfigNode.autoUpdateFirmware;
+                const mockAutoUpdateFirmware = jest.spyOn(bridgeConfigNode, "autoUpdateFirmware");
 
                 // Run once to set firmwareUpdateTimeout
                 mockAutoUpdateFirmware.mockImplementationOnce(orig);
                 mockAutoUpdateFirmware.mockResolvedValueOnce(true);
-                await bridgeNode.autoUpdateFirmware();
+                await bridgeConfigNode.autoUpdateFirmware();
                 expect(setTimeout).toBeCalledWith(expect.anything(), 12*3600*1000);
                 expect(mockAutoUpdateFirmware).toBeCalledTimes(2);
-                let timeout = bridgeNode.firmwareUpdateTimeout;
+                let timeout = bridgeConfigNode.firmwareUpdateTimeout;
                 expect(timeout).not.toBeUndefined();
 
                 // Run again to prove we call clearTimeout
                 jest.spyOn(global, "clearTimeout").mockClear();
                 mockAutoUpdateFirmware.mockImplementationOnce(orig);
                 mockAutoUpdateFirmware.mockResolvedValueOnce(true);
-                await bridgeNode.autoUpdateFirmware();
+                await bridgeConfigNode.autoUpdateFirmware();
                 expect(clearTimeout).toHaveBeenCalledTimes(1);
                 expect(clearTimeout).toHaveBeenCalledWith(timeout)
 
@@ -642,5 +644,95 @@ describe(HueBridgeConfig, () => {
                 jest.useRealTimers();
             });
         });
+    });
+
+    describe(HueBridgeConfig.prototype.subscribe, () => {
+        let bridgeConfigNode!: HueBridgeConfig;
+        beforeEach(() => {
+            EventEmitter.mockReset();
+            EventEmitter.mockImplementation((...args) => new OrigEventEmitter(...args))
+            bridgeConfigNode = new HueBridgeConfig(node, config, RED);
+        });
+        afterEach(() => {
+            EventEmitter.mockReset();
+        })
+        const updateEvent: UpdatedResourceEvent = {
+            id: randomUUID(),
+            type: "light",
+            updatedType: "" as ResourceType,
+            services: [],
+            suppressMessage: false
+        };
+        it("should forward any events if subscribed with the 'bridge' type and no ID", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("bridge", mockCb);
+            bridgeConfigNode.events.emit(
+                `bridge_globalResourceUpdates`,
+                { ...updateEvent, updatedType: "test" as ResourceType }
+            );
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ ...updateEvent, updatedType: "test" }));
+        });
+
+        function emitEventWithUpdatedType(serviceType: ResourceType, updatedType: ResourceType) {
+            bridgeConfigNode.events.emit(
+                "bridge_globalResourceUpdates", {
+                    ...updateEvent,
+                    services: [serviceType],
+                    updatedType
+                }
+            );
+        }
+        it("should not forward events of other types", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("light", mockCb);
+            emitEventWithUpdatedType("motion", "motion");
+            expect(mockCb).not.toBeCalled();
+        })
+        it("should forward light events of type light, zigbee_connectivity, zgp_connectivity, device", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("light", mockCb);
+            const rTypes: ResourceType[] = [ "light", "zigbee_connectivity", "zgp_connectivity", "device" ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("light", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "light" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zigbee_connectivity" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zgp_connectivity" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "device" }));
+        });
+        it("should forward motion events of type motion, zigbee_connectivity, zgp_connectivity, device_power, device", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("motion", mockCb);
+            const rTypes: ResourceType[] = [ "motion", "zigbee_connectivity", "zgp_connectivity", "device_power", "device" ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("motion", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "motion" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zigbee_connectivity" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zgp_connectivity" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "device_power" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "device" }));
+        });
+        // TODO: The other types?
+        it("should not forward events of unknown types", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("light", mockCb);
+            bridgeConfigNode.events.emit(
+                "bridge_globalResourceUpdates", {
+                    ...updateEvent,
+                    services: ["light"],
+                    updatedType: "test" as ResourceType
+                }
+            );
+            expect(mockCb).not.toBeCalled();
+        })
+        it("should forward rule events of type rule", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("rule", mockCb);
+            bridgeConfigNode.events.emit(
+                "bridge_globalResourceUpdates", { ...updateEvent, updatedType: "rule" }
+            );
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ ...updateEvent, updatedType: "rule" }));
+        })
+        it.todo("should forward all device-specific events if subscribed with type bridge");
+        it.todo("should forward events of a specific type for a given ID");
+        it.todo("should not forward events for devices with other IDs");
+        it.todo("should not forward events for devices with other types");
     });
 });

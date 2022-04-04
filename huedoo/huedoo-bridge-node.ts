@@ -43,7 +43,6 @@ export class HueBridgeNode extends NodeRedNode {
 
     subscribeToBridge() {
         // TODO
-
     }
     handleMessage(msg: NodeRed.NodeMessage, send: (msg: NodeRed.NodeMessage | Array<NodeRed.NodeMessage | NodeRed.NodeMessage[] | null>) => void, done: (err?: Error) => void): void {
         // TODO

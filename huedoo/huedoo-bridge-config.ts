@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import EventEmitter from "events";
+import TypedEmitter from "./utils/typed-event-emitter";
 import { NextFunction, ParamsDictionary, Query, Request, Response } from "express-serve-static-core";
 import { queue as FastQ } from "fastq";
 import * as NodeRed from "node-red";
@@ -14,6 +14,7 @@ import { Rule } from "./utils/types/api/rules";
 import { ExpandedResource, expandedResources, ExpandedServiceOwnerResource, isExpandedServiceOwnerResource } from "./utils/types/expanded/resource";
 import { Button, isButton } from "./utils/types/resources/button";
 import { isOwnedResource, RealResource, RealResourceType, ResourceId, ResourceType, ServiceOwnerResourceType, serviceOwnerResourceTypes, SpecialResource, SpecialResourceType } from "./utils/types/resources/generic";
+import { info } from "console";
 
 export interface HueBridgeDef extends NodeRed.NodeDef {
 	autoupdates?: boolean;
@@ -22,12 +23,33 @@ export interface HueBridgeDef extends NodeRed.NodeDef {
 	key: string;
 }
 
-interface UpdatedStateEvent {
+export interface UpdatedResourceEvent {
 	id: ResourceId,
 	type: ResourceType,
 	updatedType: ResourceType,
 	services: ResourceId[],
 	suppressMessage: boolean
+}
+
+type SubscribedResourceType = "light" | "motion" | "temperature" | "light_level" | "button" | "group" | "rule" | "bridge";
+interface SubscribedResourceEvent extends UpdatedResourceEvent {
+	updatedType: SubscribedResourceType
+}
+type SubscribedResourceCallbackMessage<T extends SubscribedResourceType> = T extends "bridge" ? UpdatedResourceEvent : SubscribedResourceEvent;
+type SubscribedResourceCallback<T extends SubscribedResourceType> = (event: SubscribedResourceCallbackMessage<T>) => void;
+const messageWhitelist = {
+	"light": ["light", "zigbee_connectivity", "zgp_connectivity", "device"],
+	"motion": ["motion", "zigbee_connectivity", "zgp_connectivity", "device_power", "device"],
+	"temperature": ["temperature", "zigbee_connectivity", "zgp_connectivity", "device_power", "device"],
+	"light_level": ["light_level", "zigbee_connectivity", "zgp_connectivity", "device_power", "device"],
+	"button": ["button", "zigbee_connectivity", "zgp_connectivity", "device_power", "device"],
+	"group": ["group", "light", "grouped_light"],
+	"rule": ["rule"],
+	"bridge": []
+};
+function isWhitelistedType(eventType: SubscribedResourceType, event: UpdatedResourceEvent): event is SubscribedResourceEvent {
+	const types = messageWhitelist[eventType] as ResourceType[];
+	return types.includes(event.updatedType);
 }
 
 type Req = Request<ParamsDictionary, any, any, Query, Record<string, any>>;
@@ -49,7 +71,8 @@ export class HueBridgeConfig extends NodeRedNode {
 	private _groupsOfResources: { [ groupedServiceId: ResourceId ]: ResourceId[] } = {};
 	public get groupsOfResources() { return this._groupsOfResources; } // should be sealed, but isn't for testability
 	private lastStates: { [typeAndId: string]: RealResource<RealResourceType> } = {};
-	private readonly events: EventEmitter;
+	private readonly _events: TypedEmitter<string, UpdatedResourceEvent>;
+	public get events() { return this._events; }
 	private patchQueue?: FastQ<Patch>;
 	private _firmwareUpdateTimeout?: NodeJS.Timeout;
 	public get firmwareUpdateTimeout() { return this._firmwareUpdateTimeout; }
@@ -60,7 +83,7 @@ export class HueBridgeConfig extends NodeRedNode {
     constructor(node: NodeRed.Node, config: HueBridgeDef, RED: NodeRed.NodeAPI) {
 		super(node); // become a Node!
         this.config = config;
-		this.events = new EventEmitter();
+		this._events = new TypedEmitter();
 		this.RED = RED;
 
 		//this.init();
@@ -100,7 +123,7 @@ export class HueBridgeConfig extends NodeRedNode {
 		API.unsubscribe(this.config);
 		
 		this.log("  Unregistering listeners...");
-		this.events.removeAllListeners();
+		this._events.removeAllListeners();
 		
 		if (this.firmwareUpdateTimeout) { clearTimeout(this.firmwareUpdateTimeout); }
 
@@ -368,25 +391,52 @@ export class HueBridgeConfig extends NodeRedNode {
 			serviceIds = Object.values(resource.services).map((h) => Object.keys(h)).flat();
 		}
 		
-		const msg: UpdatedStateEvent = {
+		const msg: UpdatedResourceEvent = {
 			id: resource.id,
 			type: resource.type,
 			updatedType: updatedType,
 			services: serviceIds,
 			suppressMessage: suppressMessage
 		};
-		this.events.emit(this.config.id + "_" + resource.id, msg);
-		this.events.emit(this.config.id + "_" + "globalResourceUpdates", msg);
+		this._events.emit(this.config.id + "_" + resource.id, msg);
+		this._events.emit(this.config.id + "_" + "globalResourceUpdates", msg);
 
 		// RESOURCE CONTAINS SERVICES? -> SERVICE IN GROUP? -> EMIT CHANGES TO GROUPS ALSO
 		if(this._groupsOfResources[resource.id]) {
 			for (var g = this._groupsOfResources[resource.id].length - 1; g >= 0; g--) {
 				const groupID = this._groupsOfResources[resource.id][g];
-				const groupMessage = { id: groupID, type: "group", updatedType: updatedType, services: [], suppressMessage: suppressMessage };
+				const groupMessage: UpdatedResourceEvent = {
+					id: groupID,
+					type: "group",
+					updatedType: updatedType,
+					services: [],
+					suppressMessage: suppressMessage
+				};
 
-				this.events.emit(this.config.id + "_" + groupID, groupMessage);
-				this.events.emit(this.config.id + "_" + "globalResourceUpdates", groupMessage);
+				this._events.emit(this.config.id + "_" + groupID, groupMessage);
+				this._events.emit(this.config.id + "_" + "globalResourceUpdates", groupMessage);
 			}
+		}
+	}
+	
+	subscribe<T extends SubscribedResourceType>(type: T, callback: SubscribedResourceCallback<T>): void;
+	subscribe<T extends SubscribedResourceType>(type: T, id: string, callback: SubscribedResourceCallback<T>): void;
+	subscribe<T extends SubscribedResourceType>(type: T, idOrCallback: ResourceId|SubscribedResourceCallback<T>, callbackOrUndefined?: SubscribedResourceCallback<T>): void {
+		const callback = callbackOrUndefined || (idOrCallback as SubscribedResourceCallback<T>);
+		let id = callbackOrUndefined ? idOrCallback : undefined;
+
+		if (id === undefined) {
+			this._events.on(`${this.config.id}_globalResourceUpdates`, (resourceEvent: UpdatedResourceEvent) => {
+				if (type == "bridge") {
+					(callback as SubscribedResourceCallback<"bridge">)(resourceEvent);
+				} else if (type == "rule" && isWhitelistedType(type, resourceEvent)) {
+					callback(resourceEvent);
+				} else if (resourceEvent.services.includes(type) && isWhitelistedType(type, resourceEvent)) {
+					callback(resourceEvent);
+				}
+			});
+		} else {
+			if (type == "rule") { id = `rule_${id}`; }
 		}
 	}
 
