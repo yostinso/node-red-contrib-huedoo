@@ -688,6 +688,7 @@ describe(HueBridgeConfig, () => {
             emitEventWithUpdatedType("motion", "motion");
             expect(mockCb).not.toBeCalled();
         })
+        const connectivityAndPower: ResourceType[] = [ "zigbee_connectivity", "zgp_connectivity", "device_power", "device" ]
         it("should forward light events of type light, zigbee_connectivity, zgp_connectivity, device", () => {
             const mockCb = jest.fn();
             bridgeConfigNode.subscribe("light", mockCb);
@@ -701,15 +702,52 @@ describe(HueBridgeConfig, () => {
         it("should forward motion events of type motion, zigbee_connectivity, zgp_connectivity, device_power, device", () => {
             const mockCb = jest.fn();
             bridgeConfigNode.subscribe("motion", mockCb);
-            const rTypes: ResourceType[] = [ "motion", "zigbee_connectivity", "zgp_connectivity", "device_power", "device" ];
+            const rTypes: ResourceType[] = [ "motion", ...connectivityAndPower ];
             rTypes.forEach((updateType) => { emitEventWithUpdatedType("motion", updateType); });
             expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "motion" }));
-            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zigbee_connectivity" }));
-            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "zgp_connectivity" }));
-            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "device_power" }));
-            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "device" }));
+            connectivityAndPower.forEach((evtType) => {
+                expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: evtType }));
+            });
         });
-        // TODO: The other types?
+        it("should forward temperature events of type temperature, zigbee_connectivity, zgp_connectivity, device_power, device", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("temperature", mockCb);
+            const rTypes: ResourceType[] = [ "temperature", ...connectivityAndPower ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("temperature", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "temperature" }));
+            connectivityAndPower.forEach((evtType) => {
+                expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: evtType }));
+            });
+        });
+        it("should forward light_level events of type light_level, zigbee_connectivity, zgp_connectivity, device_power, device", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("light_level", mockCb);
+            const rTypes: ResourceType[] = [ "light_level", ...connectivityAndPower ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("light_level", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "light_level" }));
+            connectivityAndPower.forEach((evtType) => {
+                expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: evtType }));
+            });
+        });
+        it("should forward button events of type button, zigbee_connectivity, zgp_connectivity, device_power, device", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("button", mockCb);
+            const rTypes: ResourceType[] = [ "button", ...connectivityAndPower ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("button", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "button" }));
+            connectivityAndPower.forEach((evtType) => {
+                expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: evtType }));
+            });
+        });
+        it("should forward group events of type group, light, grouped_light", () => {
+            const mockCb = jest.fn();
+            bridgeConfigNode.subscribe("group", mockCb);
+            const rTypes: ResourceType[] = [ "group", "light", "grouped_light" ];
+            rTypes.forEach((updateType) => { emitEventWithUpdatedType("group", updateType); });
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "group" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "light" }));
+            expect(mockCb).toBeCalledWith(expect.objectContaining({ updatedType: "grouped_light" }));
+        });
         it("should not forward events of unknown types", () => {
             const mockCb = jest.fn();
             bridgeConfigNode.subscribe("light", mockCb);
@@ -728,6 +766,8 @@ describe(HueBridgeConfig, () => {
             bridgeConfigNode.events.emit(
                 "bridge_globalResourceUpdates", { ...updateEvent, updatedType: "rule" }
             );
+            emitEventWithUpdatedType("light", "light");
+            emitEventWithUpdatedType("button", "button");
             expect(mockCb).toBeCalledWith(expect.objectContaining({ ...updateEvent, updatedType: "rule" }));
         })
         it.todo("should forward all device-specific events if subscribed with type bridge");
