@@ -1,0 +1,57 @@
+{
+    "name": "node-red-contrib-huedoo",
+    "version": "0.0.1",
+    "description": "Philips Hue support for bridges, lights, TODO (based on node-red-contrib-huemagic)",
+    "author": "yostinso",
+    "homepage": "https://github.com/yostinso/node-red-contrib-huedoo",
+    "license": "Apache-2.0",
+    "maintainers": [
+        "E.O. Stinson <yostinso@aradine.com>"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yostinso/node-red-contrib-huedoo.git"
+    },
+    "bugs": {
+        "url": "https://github.com/yostinso/node-red-contrib-huedoo/issues"
+    },
+    "keywords": [
+        "node-red",
+        "node-red-contrib",
+        "contrib",
+        "philips",
+        "hue",
+        "smart-home",
+        "home-automation",
+        "api",
+        "iot"
+    ],
+    "node-red": {
+        "nodes": {
+            "huedoo-bridge-config": "dist/huedoo-bridge-config.js",
+            "huedoo-bridge-node": "dist/huedoo-bridge-node.js"
+        }
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "compile:ts": "tsc",
+        "compile:compilers": "tsc --project ./compile",
+        "compile:views": "node ./compile/js/compileViews.js --outDir dist --locales ./huedoo/locales ./huedoo/views",
+        "compile:clean": "rm -r dist"
+    },
+    "devDependencies": {
+        "@types/async": "^3.2.13",
+        "@types/jest": "^27.5.1",
+        "@types/node": "^17.0.35",
+        "@types/node-red": "^1.2.1",
+        "jest": "^28.1.0",
+        "node-red": "^2.2.2",
+        "ts-jest": "^28.0.2",
+        "typescript": "^4.6.4"
+    },
+    "dependencies": {
+        "async": "^3.2.3"
+    }
+}

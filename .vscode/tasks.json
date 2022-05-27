@@ -1,0 +1,47 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compile TS",
+            "type": "typescript",
+            "tsconfig": "tsconfig.json",
+            "problemMatcher": [
+                "$tsc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": [
+                "Compile Views"
+            ]
+        },
+        {
+            "type": "npm",
+            "script": "compile:views",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Compile Views",
+            "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views",
+            "dependsOn":  [ "Compile Compilers" ]
+        },
+        {
+            "type": "npm",
+            "script": "compile:compilers",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Compile Compilers",
+            "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views"
+        },
+        {
+            "type": "npm",
+            "script": "compile:clean",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Clean",
+            "detail": "rm -r dist"
+        }
+    ]
+}

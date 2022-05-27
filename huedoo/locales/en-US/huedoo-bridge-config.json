@@ -1,0 +1,18 @@
+{
+    "huedoo-bridge-config": {
+        "config": {
+            "name": "Name",
+            "bridge_ip": "Bridge IP",
+            "key": "API key",
+            "workers": "API workers",
+            "autoupdates": "Automatic updates",
+            "disable_events": "Disable events for all nodes",
+            "connecting": "Connecting...",
+			"invalid": "Sorry. Your selected Hue Bridge is invalid: ",
+        },
+        "node": {
+            "title": "Hue Bridge",
+            "statusmsg": "Status queried successfully..."
+        }
+    }
+}

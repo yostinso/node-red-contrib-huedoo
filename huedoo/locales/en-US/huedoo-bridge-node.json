@@ -1,0 +1,18 @@
+{
+    "huedoo-bridge-node": {
+        "config": {
+			"name": "Name",
+            "bridge": "Bridge",
+			"input-name": "Hue Bridge name",
+			"skipglobalevents-info": "Skip global device updates / messages on this node",
+			"sendinitevents-node": "Do not suppress initialization event"
+        }
+        "node": {
+            "connecting": "connecting...",
+            "not-configured": "not configured",
+            "input": "settings / fetch",
+			"output": "bridge information",  "title": "Hue Bridge",
+            "statusmsg": "Status queried successfully..."
+        }
+    }
+}

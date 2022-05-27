@@ -1,0 +1,54 @@
+<div class="form-row">
+    <label for="node-config-input-name">
+        <i class="fa fa-tag"></i>
+        <span data-i18n="huedoo-bridge-config.config.name"></span>
+    </label>
+    <input type="text" id="node-config-input-name" style="width: calc(100% - 105px)">
+</div>
+<div class="form-row">
+    <label for="node-config-input-bridge">
+        <i class="fa fa-server"></i>
+        <span data-i18n="huedoo-bridge-config.config.bridge_ip"></span>
+    </label>
+    <div style="display: inline-flex; width: calc(100% - 105px)">
+        <div id="input-select-toggle" style="flex-grow: 1;">
+            <input type="text" id="node-config-input-bridge" placeholder="X.X.X.X[:PORT]" style="width: 100%">
+        </div>
+        <button id="node-config-input-scan" type="button" class="red-ui-button" style="margin-left: 10px">
+            <i class="fa fa-search"></i>
+        </button>
+    </div>
+</div>
+<div class="form-row">
+    <label for="node-config-input-key">
+        <i class="fa fa-key"></i>
+        <span data-i18n="huedoo-bridge-config.config.key"></span>
+    </label>
+    <div style="display: inline-flex; width: calc(100% - 105px)">
+        <div id="input-select-toggle" style="flex-grow: 1;">
+            <input type="text" id="node-config-input-key" style="width: 100%">
+        </div>
+        <button id="node-config-input-register" type="button" class="red-ui-button" style="margin-left: 10px">
+            <i class="fa fa-user-circle-o"></i>
+        </button>
+    </div>
+</div>
+<div class="form-row">
+    <label for="node-config-input-workers">
+        <i class="fa fa-cogs"></i>
+        <span data-i18n="huedoo-bridge-config.config.workers"></span>
+    </label>
+    <input type="text" id="node-config-input-workers" placeholder="10" style="width: calc(100% - 105px)">
+</div>
+<div class="form-row" style="margin-top: 30px">
+    <div style="display: inline-flex; width: calc(100% - 105px);">
+        <input type="checkbox" id="node-config-input-autoupdates" style="flex: 15px">
+        <span data-i18n="hudeoo-bridge-config.config.autoupdates" style="width: 100%; margin-left: 10px"></span>
+    </div>
+</div>
+<div class="form-row"">
+    <div style="display: inline-flex; width: calc(100% - 105px);">
+        <input type="checkbox" id="node-config-input-disableevents" style="flex: 15px">
+        <span data-i18n="hudeoo-bridge-config.config.disable_events" style="width: 100%; margin-left: 10px"></span>
+    </div>
+</div>
