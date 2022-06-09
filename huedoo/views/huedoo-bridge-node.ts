@@ -1,5 +1,5 @@
-"use strict";
-// @ts-nocheck
+import NodeRedNode from "./ES6Node";
+
 (() => {
     const config = {
         category: "HueDoo",
@@ -15,12 +15,17 @@
         icon: "huedoo-bridge-node.png",
         inputs: 1,
         outputs: 1,
-        label: function () { return this.name || this._("huedoo-bridge-node.node.title"); },
-        paletteLabel: function () { return RED._("huedoo-bridge-node.node.title"); },
-        inputLabels: function () { return RED._("huedoo-bridge-node.node.input"); },
-        outputLabels: function () { return RED._("huedoo-bridge-node.node.output"); },
+        // @ts-ignore
+        label: function() { return this.name || this._("huedoo-bridge-node.node.title"); },
+        // @ts-ignore
+        paletteLabel: function() { return RED._("huedoo-bridge-node.node.title"); },
+        // @ts-ignore
+        inputLabels: function() { return RED._("huedoo-bridge-node.node.input"); },
+        // @ts-ignore
+        outputLabels: function() { return RED._("huedoo-bridge-node.node.output"); },
         button: {
-            onclick: () => {
+            onclick: function() {
+        // @ts-ignore
                 if (this.bridge) {
                     $.ajax({
                         url: "inject/" + this.id,
@@ -28,12 +33,20 @@
                         data: JSON.stringify({ __user_inject_props__: "status" }),
                         contentType: "application/json; charset=utf-8",
                         success: (resp) => {
-                            RED.notify(this.name + ": " + this._("huedoo-bridge-node.node.statusmsg"), { type: "success", id: "status", timeout: 2000 });
+        // @ts-ignore
+                            RED.notify(
+        // @ts-ignore
+                                this.name + ": " + this._("huedoo-bridge-node.node.statusmsg"),
+                                { type: "success", id: "status", timeout: 2000 }
+                            );
                         }
-                    });
+                    })
                 }
             }
         }
+
     };
+
+        // @ts-ignore
     RED.nodes.registerType("huedoo-bridge-node", config);
 })();

@@ -38,6 +38,7 @@
     "scripts": {
         "compile:ts": "tsc",
         "compile:compilers": "tsc --project ./compile",
+        "compile:views_ts": "tsc --project ./huedoo/views",
         "compile:views": "node ./compile/js/compileViews.js --outDir dist --locales ./huedoo/locales ./huedoo/views",
         "compile:clean": "rm -r dist"
     },

@@ -19,13 +19,22 @@
             ]
         },
         {
+            "label": "Compile Views",
             "type": "npm",
             "script": "compile:views",
             "group": "build",
             "problemMatcher": [],
-            "label": "Compile Views",
             "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views",
-            "dependsOn":  [ "Compile Compilers" ]
+            "dependsOn":  [ "Compile Views TS", "Compile Compilers" ],
+            "dependsOrder": "parallel"
+        },
+        {
+            "type": "npm",
+            "script": "compile:views_ts",
+            "group": "build",
+            "problemMatcher": [],
+            "label": "Compile Views TS",
+            "detail": "tsc --project ./views"
         },
         {
             "type": "npm",
@@ -33,7 +42,7 @@
             "group": "build",
             "problemMatcher": [],
             "label": "Compile Compilers",
-            "detail": "node ./compile/js/compileViews.js --outDir dist ./huemagic/views"
+            "detail": "tsc --project ./compile"
         },
         {
             "type": "npm",
